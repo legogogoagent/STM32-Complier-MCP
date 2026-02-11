@@ -42,6 +42,18 @@
       "message": "feat(docker): Phase 1 - Docker编译环境",
       "time": "2026-02-11T09:50:00Z",
       "files_changed": 3
+    },
+    {
+      "hash": "b9e12c8",
+      "message": "docs: 更新CHANGELOG和会话记忆 - Phase 1完成",
+      "time": "2026-02-11T10:00:00Z",
+      "files_changed": 2
+    },
+    {
+      "hash": "c574ae2",
+      "message": "fix(docker): 更新Dockerfile并修复大小写问题",
+      "time": "2026-02-11T10:10:00Z",
+      "files_changed": 2
     }
   ],
   "github_repo": "https://github.com/legogogoagent/STM32-Complier-MCP",
@@ -86,6 +98,14 @@
     "flash": "128KB",
     "ram": "20KB",
     "hal": "STM32F1xx_HAL_Driver",
-    "features": ["USB Device", "ADC", "UART", "TIM", "DMA"]
+    "features": ["USB Device", "ADC", "UART", "TIM", "DMA"],
+    "build_test": {
+      "status": "passed",
+      "tested_at": "2026-02-11T10:10:00Z",
+      "text": 51908,
+      "data": 544,
+      "bss": 5912,
+      "total": 58364
+    }
   }
 }
