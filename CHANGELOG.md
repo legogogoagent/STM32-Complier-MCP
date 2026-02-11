@@ -13,6 +13,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GCC/LD错误解析器
 - 完整闭环测试
 
+## [0.2.0] - 2026-02-11
+
+### Phase 1: Docker编译环境 🐳
+
+#### Added
+- **Docker镜像定义** (`docker/Dockerfile`)
+  - 基础镜像: Ubuntu 24.04 LTS
+  - 工具链: gcc-arm-none-eabi (GNU Arm Embedded Toolchain)
+  - 辅助工具: make, python3, bash, coreutils, findutils, sed, grep, gawk, file
+  - 工作目录: /src (只读), /work (可写), /out (输出)
+  - 镜像大小目标: < 1GB
+
+- **容器内编译脚本** (`tools/build.sh`)
+  - 从只读 /src 拷贝源码到可写 /work/project
+  - 支持 make clean (通过CLEAN环境变量控制)
+  - 支持并行编译 (通过JOBS环境变量控制)
+  - 完整日志输出到 /out/build.log
+  - 自动收集编译产物 (.elf, .hex, .bin, .map, .lst) 到 /out/artifacts/
+  - 返回正确的make退出码
+
+- **测试工程Makefile** (`Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32/Makefile`)
+  - 目标: STM32F103CBTx (Cortex-M3)
+  - 内存: 128KB Flash, 20KB RAM
+  - 包含23个Core源文件 (用户代码 + HAL MSP)
+  - 包含16个HAL库源文件
+  - 预处理器定义: USE_HAL_DRIVER, STM32F103xB
+  - 优化等级: -O2
+  - 链接脚本: STM32F103CBTX_FLASH.ld
+  - 生成产物: .elf, .hex, .bin, .map
+
+#### Docker Build Instructions
+```bash
+# 构建镜像
+docker build -f docker/Dockerfile -t stm32-toolchain:latest .
+
+# 验证镜像
+docker run --rm stm32-toolchain:latest arm-none-eabi-gcc --version
+docker run --rm stm32-toolchain:latest make --version
+
+# 测试编译 (在工程目录)
+docker run --rm --network=none \
+  -v $(pwd)/Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32:/src:ro \
+  -v /tmp/build_out:/out:rw \
+  -e CLEAN=1 \
+  -e JOBS=8 \
+  stm32-toolchain:latest bash /src/tools/build.sh
+```
+
+#### Files Created
+- `docker/Dockerfile` (39 lines)
+- `tools/build.sh` (147 lines, executable)
+- `Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32/Makefile` (179 lines)
+
 ---
 
 ## [0.1.0] - 2026-02-11
@@ -64,13 +117,15 @@ STM32_Complier_MCP/
 - **Build System**: Make
 
 #### Next Steps
-- [ ] Phase 1: Docker编译环境搭建
-  - [ ] 创建docker/Dockerfile
-  - [ ] 创建tools/build.sh
-  - [ ] 生成测试工程Makefile
+- [x] Phase 1: Docker编译环境搭建 ✅
+  - [x] 创建docker/Dockerfile
+  - [x] 创建tools/build.sh
+  - [x] 生成测试工程Makefile
   
 - [ ] Phase 2: MCP Server核心
   - [ ] 创建mcp_build/stm32_build_server.py
+  - [ ] 创建mcp_build/__init__.py
+  - [ ] 创建requirements.txt
   - [ ] 实现build_firmware工具
   - [ ] 安全校验和超时控制
   
@@ -86,7 +141,7 @@ STM32_Complier_MCP/
 | Version | Target Date | Milestone |
 |---------|-------------|-----------|
 | 0.1.0 | 2026-02-11 | ✅ 项目初始化完成 |
-| 0.2.0 | TBD | Docker编译环境 |
+| 0.2.0 | 2026-02-11 | ✅ Docker编译环境 |
 | 0.3.0 | TBD | MCP Server核心 |
 | 0.4.0 | TBD | GCC错误解析器 |
 | 1.0.0 | TBD | 完整闭环 + 验收通过 |
