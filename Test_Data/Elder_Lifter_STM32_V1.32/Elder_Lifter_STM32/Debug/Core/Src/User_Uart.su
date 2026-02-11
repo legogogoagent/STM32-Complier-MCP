@@ -1,0 +1,10 @@
+../Core/Src/User_Uart.c:32:6:User_UART_Init	8	static
+../Core/Src/User_Uart.c:41:6:User_UART1_Config	8	static
+../Core/Src/User_Uart.c:48:6:User_UART2_Config	8	static
+../Core/Src/User_Uart.c:57:6:User_UART3_Config	8	static
+../Core/Src/User_Uart.c:64:6:User_UART_Rx_Handler	16	static
+../Core/Src/User_Uart.c:125:10:User_UART_Shift_Buffer	32	static
+../Core/Src/User_Uart.c:142:6:User_UART_PrintTimeStamp	16	static
+../Core/Src/User_Uart.c:155:6:HAL_UART_RxCpltCallback	16	static
+../Core/Src/User_Uart.c:177:6:UartRxDMA_IdleInterruptHandler	32	static
+../Core/Src/User_Uart.c:247:6:User_memcpy	32	static

@@ -1,0 +1,9 @@
+../Core/Src/Panel_Serial.c:48:6:Panel_Serial_Init	1
+../Core/Src/Panel_Serial.c:61:10:Panel_Serial_Handler	47
+../Core/Src/Panel_Serial.c:218:9:Panel_Serial_CheckPacket	20
+../Core/Src/Panel_Serial.c:255:9:Panel_Serial_CheckSamePacket	2
+../Core/Src/Panel_Serial.c:268:6:Panel_Serial_SendACK	1
+../Core/Src/Panel_Serial.c:279:6:Panel_Serial_SendNACK	1
+../Core/Src/Panel_Serial.c:290:6:Panel_Serial_Sendout	3
+../Core/Src/Panel_Serial.c:313:6:Panel_Serial_SendEncoder	1
+../Core/Src/Panel_Serial.c:332:6:Panel_Serial_SendStatus	1

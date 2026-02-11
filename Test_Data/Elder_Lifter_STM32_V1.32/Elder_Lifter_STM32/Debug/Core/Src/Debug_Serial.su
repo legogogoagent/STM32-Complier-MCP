@@ -1,0 +1,5 @@
+../Core/Src/Debug_Serial.c:28:6:Debug_Init	8	static
+../Core/Src/Debug_Serial.c:41:10:Debug_Serial_Handler	24	static
+../Core/Src/Debug_Serial.c:174:15:Extract_Keyword	40	static
+../Core/Src/Debug_Serial.c:196:5:__io_putchar	16	static
+../Core/Src/Debug_Serial.c:202:5:_write	32	static

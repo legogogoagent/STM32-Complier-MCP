@@ -1,0 +1,7 @@
+../Core/Src/Motor.c:61:6:Motor_Init	1
+../Core/Src/Motor.c:88:6:Motor_Stop	1
+../Core/Src/Motor.c:101:6:Motor_Set_Output	17
+../Core/Src/Motor.c:220:6:Motor_PWM_output	1
+../Core/Src/Motor.c:228:6:Motor_Position_Limiter	14
+../Core/Src/Motor.c:259:6:Motor_Timeout_Handler	3
+../Core/Src/Motor.c:269:6:Motor_Set_Position_Limiter	2

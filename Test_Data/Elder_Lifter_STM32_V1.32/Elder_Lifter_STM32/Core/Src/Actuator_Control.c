@@ -1,0 +1,649 @@
+// Includes ------------------------------------------------------------------
+#include "main.h"
+#include "Lifter_Main.h"
+#include "Actuator_Control.h"
+#include "Encoder.h"
+#include "Motor.h"
+#include "GPIO.h"
+#include "LED_RS485.h"
+
+#define MAX_OUTPUT 100
+#define MIN_OUTPUT -100
+#define MIN_START_SPEED 20
+#define SLOW_DOWN_THRESHOLD 100
+#define POSITION_TOLERANCE  100  // 位置误差容限
+#define MAX_VERTICAL_ACC	20
+#define MAX_VERTICAL_DEC	20	//40
+
+// Variables ---------------------------------------------------------
+// 结构体定义
+typedef struct {
+    // 位置式PID参数
+    float kp;
+    float ki;
+    float kd;
+    float integral;
+
+    // 增量式PID参数
+    float last_error;
+    float prev_error;
+    float last_output;
+} PID_Controller;
+
+typedef struct {
+	uint8_t id;
+	uint8_t state;
+	uint16_t soft_start_counter;
+    float current_position;
+    float previous_position;
+    float last_position;
+    float target_position;
+    float position_error;
+    float current_speed;
+    float last_speed;
+    float max_acceleration;
+    float max_speed;
+    float min_speed;
+    float max_position;
+    float min_position;
+    PID_Controller speed_pid;
+    PID_Controller position_pid;
+    float last_update_time;
+    float sync_factor;
+    float prev_output;
+    uint16_t look_ahead_distance;
+} Actuator;
+
+typedef struct {
+    float vertical;
+    float horizontal;
+    float tilt;
+} TargetPosition;
+
+
+
+bool Actuator_debug;
+
+static Actuator vertical_actuator;
+static Actuator horizontal_actuator;
+static Actuator tilt_actuator;
+static SystemState current_state = SYSTEM_IDLE;
+static float total_speed_factor;
+// Subroutine -----------------------------------------------------
+void ActuatorSystem_Init(void);
+void ActuatorSystem_Update(void);
+SystemState ActuatorSystem_GetState(void);
+static void InitActuator(Actuator* actuator);
+static void InitActuator_Nonstop(Actuator* actuator);
+static void FinishMotion(void);
+static void HandleSystemError(void);
+void Actuator_Output_Limiter(Actuator* actuator, int8_t output);
+
+
+// Code -----------------------------------------------------------
+void Actuator_Control_Init(void)
+{
+	Actuator_debug = 1;
+	ActuatorSystem_Init();
+    current_state = SYSTEM_IDLE;
+    total_speed_factor = 1;
+}
+
+void Actuator_Set_Debug(uint8_t enable)
+{
+	if(enable !=0)
+		Actuator_debug = 1;
+	else
+		Actuator_debug = 0;
+}
+
+void Actuator_Set_Total_Speed(float speed)
+{
+	if(speed>1)
+		speed = 1;	//Maximum 1
+	if(speed < 0)
+		speed = 0.1;	//Minimum 0.1
+	total_speed_factor = speed;
+}
+
+void Actuator_Set_Soft_Start(void)
+{
+    vertical_actuator.soft_start_counter = 10;	//20;
+}
+
+/********************************************************************
+ * void Actuator_Control_Handler(void)
+ * @brief  use pid control actuator to target position
+ * 			should call this function in every main loop
+ *
+ *******************************************************************/
+void Actuator_Control_Handler(void)
+{
+
+    ActuatorSystem_Update();
+}
+
+uint8_t Actuator_Get_State(void)
+{
+	return current_state;
+}
+
+uint8_t Actuator_Set_Look_Ahead_Distance(uint16_t v_ahead, uint16_t h_ahead, uint16_t t_ahead)
+{
+	vertical_actuator.look_ahead_distance = v_ahead;
+	horizontal_actuator.look_ahead_distance = h_ahead;
+	tilt_actuator.look_ahead_distance = t_ahead;
+	return 0;
+}
+
+uint8_t Actuator_Reach_Look_Ahead_Distance(void)
+{
+	if((fabsf(vertical_actuator.position_error)<vertical_actuator.look_ahead_distance) && (fabsf(horizontal_actuator.position_error)<horizontal_actuator.look_ahead_distance) && (fabsf(tilt_actuator.position_error)<tilt_actuator.look_ahead_distance))
+		return 1;
+	else
+		return 0;
+}
+
+// 位置式PID - 用于位置环
+static float PositionPID(PID_Controller* pid, float error, float dt) {
+    const float MAX_INTEGRAL = 1000.0f;
+    const float DEAD_ZONE = 0.1f;
+
+    // 死区控制
+    if (fabsf(error) < DEAD_ZONE) {
+        error = 0;
+        pid->integral = 0;
+    }
+
+    // 积分项计算（带抗饱和）
+    if (fabsf(pid->integral) < MAX_INTEGRAL) {
+        pid->integral += error * dt;
+    }
+
+    // 微分项计算（带低通滤波）
+    float derivative = (error - pid->prev_error) / dt;
+    static float filtered_derivative = 0;
+    filtered_derivative = 0.1f * derivative + 0.9f * filtered_derivative;
+
+    pid->prev_error = error;
+
+    return pid->kp * error +
+           pid->ki * pid->integral +
+           pid->kd * filtered_derivative;
+}
+
+// 增量式PID - 用于速度环
+static float IncrementalPID(PID_Controller* pid, float error, float dt) {
+    // 计算增量
+    float delta_output = pid->kp * (error - pid->last_error) +
+                        pid->ki * error +
+                        pid->kd * (error - 2 * pid->last_error + pid->prev_error);
+
+    // 更新误差
+    pid->prev_error = pid->last_error;
+    pid->last_error = error;
+
+    // 累加输出
+    pid->last_output += delta_output;
+
+    // 输出限幅
+    if (pid->last_output > MAX_OUTPUT) pid->last_output = MAX_OUTPUT;
+    if (pid->last_output < MIN_OUTPUT) pid->last_output = MIN_OUTPUT;
+
+    return pid->last_output;
+}
+
+// 读取位置传感器
+static float ReadPositionSensor(Actuator* actuator) {
+    // 实现位置传感器读取逻辑
+    return (float)Encoder_Read(actuator->id);
+}
+
+// 设置执行器速度
+static void SetActuatorSpeed(Actuator* actuator, float speed) {
+//    const float MAX_ACCELERATION = 50.0f; // 最大加速度限制
+//    float dt = (HAL_GetTick() - actuator->last_update_time) / 1000.0f;
+//
+//    // 加速度限制
+//    float speed_change = speed - actuator->current_speed;
+//    float max_speed_change = MAX_ACCELERATION * dt;
+//
+//    if (fabsf(speed_change) > max_speed_change) {
+//        speed = actuator->current_speed +
+//                (speed_change > 0 ? max_speed_change : -max_speed_change);
+//    }
+
+    // 速度限幅
+    speed = fminf(fmaxf(speed, -100), 100);	//maximum 100% duty cycle
+
+//    // 软启动处理
+//    if (actuator->current_speed == 0 && fabsf(speed) > 0) {
+//        // 从静止启动时使用较小的初始速度
+//        speed = (speed > 0) ? MIN_START_SPEED : -MIN_START_SPEED;
+//    }
+//
+//    // 接近目标位置时的减速处理
+//    float position_error = fabsf(actuator->target_position - actuator->current_position);
+//    if (position_error < SLOW_DOWN_THRESHOLD) {
+//        float slow_down_factor = position_error / SLOW_DOWN_THRESHOLD;
+//        speed *= slow_down_factor;
+//    }
+
+    // 更新电机输出
+    Motor_Set_Output(actuator->id, speed);
+}
+
+// 初始化系统
+void ActuatorSystem_Init(void) {
+    // 初始化垂直执行器
+	vertical_actuator.id = VER_MOTOR;
+	vertical_actuator.max_acceleration = 5;	//10;	//output delta
+    vertical_actuator.max_speed = 3150; //100%,   //1439;	//50%
+    vertical_actuator.min_speed = -3150;
+    vertical_actuator.max_position = 16223;
+    vertical_actuator.min_position = 0;
+    vertical_actuator.position_pid.kp = 0.2;
+    vertical_actuator.position_pid.ki = 0.0;
+    vertical_actuator.position_pid.kd = 0.01;
+    vertical_actuator.speed_pid.kp = 0.2;
+    vertical_actuator.speed_pid.ki = 0.0;
+    vertical_actuator.speed_pid.kd = 0.01;
+    vertical_actuator.soft_start_counter = 0;
+    vertical_actuator.look_ahead_distance = 400;
+
+
+    // 初始化水平执行器
+    horizontal_actuator.id = HOR_MOTOR;
+    horizontal_actuator.max_acceleration = 80;	//output delta
+    horizontal_actuator.max_speed = 1700;	//100%		//733;	//50%
+    horizontal_actuator.min_speed = -1700;
+    horizontal_actuator.max_position = 6077;
+    horizontal_actuator.min_position = 0;
+    horizontal_actuator.position_pid.kp = 1.0;
+    horizontal_actuator.position_pid.ki = 0.0;
+    horizontal_actuator.position_pid.kd = 0.01;
+    horizontal_actuator.speed_pid.kp = 1.5;	//1.0;
+    horizontal_actuator.speed_pid.ki = 0.0;
+    horizontal_actuator.speed_pid.kd = 0.01;
+    horizontal_actuator.soft_start_counter = 0;
+    horizontal_actuator.look_ahead_distance = 100;
+
+    // 初始化倾斜执行器
+    tilt_actuator.id = TILT_MOTOR;
+    tilt_actuator.max_acceleration = 40;	//output delta
+    tilt_actuator.max_speed = 130;	//100%	//60;	//50%
+    tilt_actuator.min_speed = -130;
+    tilt_actuator.max_position = 513;
+    tilt_actuator.min_position = 75;	//0;
+    tilt_actuator.position_pid.kp = 1.0;
+    tilt_actuator.position_pid.ki = 0.0;
+    tilt_actuator.position_pid.kd = 0.01;
+    tilt_actuator.speed_pid.kp = 1.0;
+    tilt_actuator.speed_pid.ki = 0.0;
+    tilt_actuator.speed_pid.kd = 0.01;
+    tilt_actuator.soft_start_counter = 0;
+    tilt_actuator.look_ahead_distance = 50;
+
+    // 初始化硬件定时器和传感器
+}
+
+void ActuatorSystem_Stop(void)
+{
+    SetActuatorSpeed(&vertical_actuator, 0);
+    SetActuatorSpeed(&horizontal_actuator, 0);
+    SetActuatorSpeed(&tilt_actuator, 0);
+    current_state = SYSTEM_IDLE;
+    if((Lifter_Error_Debug!=0) || (Actuator_debug!=0))
+    	printf("stop target \n");
+	if((GPIO_Get_Sensor() & ESTOP_KEY)==0)
+		LED_RS485_Color(LED_GREEN_COLOR,10);
+}
+
+void ActuatorSystem_SetTarget(uint16_t vertical, uint16_t horizontal, uint16_t tilt)
+{
+    vertical_actuator.target_position = (float)vertical;
+    horizontal_actuator.target_position = (float)horizontal;
+    tilt_actuator.target_position = (float)tilt;
+
+    InitActuator(&vertical_actuator);
+    InitActuator(&horizontal_actuator);
+    InitActuator(&tilt_actuator);
+
+    current_state = SYSTEM_MOVING;
+    vertical_actuator.state = SYSTEM_MOVING;
+    horizontal_actuator.state = SYSTEM_MOVING;
+    tilt_actuator.state = SYSTEM_MOVING;
+    if((Lifter_Error_Debug!=0) || (Actuator_debug!=0))
+    {
+    	printf("set target ver:%d, hor:%d, tilt:%d, speed:%.1f\n", vertical, horizontal, tilt, total_speed_factor);
+    }
+	LED_RS485_Color(LED_YELLOW_COLOR,10);
+}
+
+void ActuatorSystem_SetTarget_withoutInit(uint16_t vertical, uint16_t horizontal, uint16_t tilt)
+{
+    vertical_actuator.target_position = (float)vertical;
+    horizontal_actuator.target_position = (float)horizontal;
+    tilt_actuator.target_position = (float)tilt;
+
+    InitActuator_Nonstop(&vertical_actuator);
+    InitActuator_Nonstop(&horizontal_actuator);
+    InitActuator_Nonstop(&tilt_actuator);
+
+    current_state = SYSTEM_MOVING;
+    vertical_actuator.state = SYSTEM_MOVING;
+    horizontal_actuator.state = SYSTEM_MOVING;
+    tilt_actuator.state = SYSTEM_MOVING;
+    if((Lifter_Error_Debug!=0) || (Actuator_debug!=0))
+    {
+    	printf("set target ver:%d, hor:%d, tilt:%d, speed:%.1f\n", vertical, horizontal, tilt, total_speed_factor);
+    }
+	LED_RS485_Color(LED_YELLOW_COLOR,10);
+}
+
+void ActuatorSystem_ToggleTarget(uint16_t vertical, uint16_t horizontal, uint16_t tilt)
+{
+	if (current_state != SYSTEM_MOVING)
+		ActuatorSystem_SetTarget(vertical, horizontal, tilt);
+	else
+		ActuatorSystem_Stop();
+}
+
+
+// 计算同步速度因子
+static void CalculateSyncFactor(void) {
+float v_distance=0, h_distance=0, t_distance=0;
+	if(vertical_actuator.state == SYSTEM_MOVING)
+		v_distance = fabsf(vertical_actuator.target_position - vertical_actuator.current_position);
+    if(horizontal_actuator.state == SYSTEM_MOVING)
+    	h_distance = fabsf(horizontal_actuator.target_position - horizontal_actuator.current_position);
+    if(tilt_actuator.state == SYSTEM_MOVING)
+    	t_distance = fabsf(tilt_actuator.target_position - tilt_actuator.current_position);
+
+
+    // 计算每个轴到达目标位置所需的时间
+    float v_time = v_distance / vertical_actuator.max_speed;
+    float h_time = h_distance / horizontal_actuator.max_speed;
+    float t_time = t_distance / tilt_actuator.max_speed;
+
+    // 找出最长运动时间
+    float max_time = fmaxf(fmaxf(v_time, h_time), t_time);
+
+    // 计算同步因子
+    if (max_time > 0) {
+        // 为每个轴计算单独的同步因子
+        vertical_actuator.sync_factor = v_time / max_time;
+        horizontal_actuator.sync_factor = h_time / max_time;
+        tilt_actuator.sync_factor = t_time / max_time;
+    }
+}
+
+// 检查是否到达目标位置
+static bool IsTargetReached(void) {
+	if((fabsf(vertical_actuator.current_position - vertical_actuator.target_position) < POSITION_TOLERANCE) && (vertical_actuator.state == SYSTEM_MOVING))
+	{
+	    SetActuatorSpeed(&vertical_actuator, 0);
+		vertical_actuator.state = SYSTEM_PAUSE;	//pause for all actuator reach
+	}
+	if((fabsf(horizontal_actuator.current_position - horizontal_actuator.target_position) < 30) && (horizontal_actuator.state == SYSTEM_MOVING))
+	{
+	    SetActuatorSpeed(&horizontal_actuator, 0);
+		horizontal_actuator.state = SYSTEM_PAUSE;	//pause for all actuator reach
+	}
+
+	if((fabsf(tilt_actuator.current_position - tilt_actuator.target_position) < 20) && (tilt_actuator.state == SYSTEM_MOVING))
+	{
+	    SetActuatorSpeed(&tilt_actuator, 0);
+		tilt_actuator.state = SYSTEM_PAUSE;	//pause for all actuator reach
+	}
+
+	if((current_state == SYSTEM_MOVING) && (vertical_actuator.state == SYSTEM_PAUSE) && (horizontal_actuator.state == SYSTEM_PAUSE) && (tilt_actuator.state == SYSTEM_PAUSE))
+//	if((current_state == SYSTEM_MOVING) && (tilt_actuator.state == SYSTEM_PAUSE))
+		return 1;
+
+	return 0;
+}
+
+static void InitActuator(Actuator* actuator) {
+    // 读取当前位置
+    actuator->current_position = ReadPositionSensor(actuator);
+    actuator->last_position = actuator->current_position;
+    actuator->position_error = actuator->target_position - actuator->current_position;
+
+    // 位置环PID参数(位置式)
+    actuator->position_pid.integral = 0;
+    actuator->position_pid.prev_error = 0;
+
+    // 速度环PID参数(增量式)
+    actuator->speed_pid.last_error = 0;
+    actuator->speed_pid.prev_error = 0;
+    actuator->speed_pid.last_output = 0;
+
+    actuator->last_update_time = HAL_GetTick();
+    actuator->prev_output = 0;
+
+}
+
+static void InitActuator_Nonstop(Actuator* actuator) {
+    // 读取当前位置
+    actuator->current_position = ReadPositionSensor(actuator);
+    actuator->last_position = actuator->current_position;
+    actuator->position_error = actuator->target_position - actuator->current_position;
+
+    // 位置环PID参数(位置式)
+    actuator->position_pid.integral = 0;
+    actuator->position_pid.prev_error = 0;
+
+    // 速度环PID参数(增量式)
+    actuator->speed_pid.last_error = 0;
+    actuator->speed_pid.prev_error = 0;
+    actuator->speed_pid.last_output = 0;
+
+    actuator->last_update_time = HAL_GetTick();
+//    actuator->prev_output = 0;
+
+}
+
+// 更新单个执行器
+static void UpdateActuator(Actuator* actuator, float speed_factor) {
+float control_output, delta_ouput;
+    uint32_t current_time = HAL_GetTick();
+    float dt = (current_time - actuator->last_update_time) / 1000.0f;
+
+    // 更新当前位置和速度
+    actuator->current_position = ReadPositionSensor(actuator);
+    actuator->last_speed = actuator->current_speed;
+    actuator->current_speed = (actuator->current_position - actuator->last_position) / dt;
+
+    // 1. 位置环 - 使用位置式PID
+    actuator->position_error = actuator->target_position - actuator->current_position;
+    float desired_speed = PositionPID(&actuator->position_pid, actuator->position_error, dt);
+
+    // 更新历史数据
+    actuator->last_position = actuator->current_position;
+    actuator->last_update_time = current_time;
+
+    desired_speed = fminf(fmaxf(desired_speed, -100), 100);	//maximum 100% duty cycle
+    // 应用同步因子
+    control_output = desired_speed * actuator->sync_factor * speed_factor;
+
+    // soft start
+    if((actuator->soft_start_counter > 0)&&(fabsf(control_output)>1))
+    {
+    	actuator->soft_start_counter--;
+	    delta_ouput = fabsf(control_output - actuator->prev_output);
+	    if((control_output>0)&&(delta_ouput>actuator->max_acceleration))
+	    {
+	    	control_output = actuator->prev_output + actuator->max_acceleration;
+//	    	printf("%d acc limit, prev:%.1f, delta:%.1f, out:%.1f\n", actuator->id, actuator->prev_output, delta_ouput, control_output);
+	    }
+	    if((control_output<0)&&(delta_ouput>actuator->max_acceleration))
+	    {
+	    	control_output = actuator->prev_output - actuator->max_acceleration;
+//	    	printf("%d dec limit, prev:%.1f, delta:%.1f, out:%.1f\n", actuator->id, actuator->prev_output, delta_ouput, control_output);
+	    }
+
+    }
+
+    // 设置执行器输出
+//    if(actuator->id == 1)
+//    printf("UpdateActuator%d, pos=%.1f, error=%.1f, sync=%.2f, out=%.1f\n", actuator->id, actuator->current_position, actuator->position_error, actuator->sync_factor, control_output);
+    Actuator_Set_Output(actuator->id, (int8_t)control_output);
+}
+
+
+void Actuator_Output_Limiter(Actuator* actuator, int8_t output)
+{
+    actuator->current_position = ReadPositionSensor(actuator);
+	if(((output>0)&&(actuator->current_position > actuator->max_position))||((output<0)&&(actuator->current_position < actuator->min_position)))
+	{
+		output=0;
+	    if((Lifter_Error_Debug!=0) || (Actuator_debug!=0))
+	    	printf("Actuator%d reached limit, pos=%.1f\n", actuator->id, actuator->current_position);
+	}
+	if((output-actuator->prev_output)>MAX_VERTICAL_ACC)
+	{
+		output = actuator->prev_output + MAX_VERTICAL_ACC;
+	    if(Actuator_debug!=0)
+	    	printf("Actuator%d acceleration limit, pre_out=%.1f\n",actuator->id, actuator->prev_output);
+	}
+	if((actuator->prev_output-output)>MAX_VERTICAL_DEC)
+	{
+		output = actuator->prev_output - MAX_VERTICAL_DEC;
+	    if(Actuator_debug!=0)
+	    	printf("Actuator%d deceleration limit, pre_out=%.1f\n",actuator->id, actuator->prev_output);
+	}
+	//	if(abs(output)<=5)	//minimum speed limit
+//		output = 0;
+    actuator->prev_output = output;
+    Motor_Set_Output(actuator->id, (int8_t)output);
+}
+
+void Actuator_Set_Output(uint8_t motor, int8_t output)
+{
+	switch (motor)
+	{
+		case VER_MOTOR:
+			Actuator_Output_Limiter(&vertical_actuator, output);
+			break;
+		case HOR_MOTOR:
+			Actuator_Output_Limiter(&horizontal_actuator, output);
+			break;
+		case TILT_MOTOR:
+			Actuator_Output_Limiter(&tilt_actuator, output);
+			break;
+		default:
+			break;
+	}
+}
+
+void Show_Actuator_Speed(void)
+{
+    uint32_t current_time = HAL_GetTick();
+    float dt = (current_time - vertical_actuator.last_update_time) / 1000.0f;
+    vertical_actuator.last_update_time = current_time;
+
+    // 更新当前位置和速度
+    vertical_actuator.current_position = ReadPositionSensor(&vertical_actuator);
+    vertical_actuator.current_speed = (vertical_actuator.current_position - vertical_actuator.last_position) / dt;
+    vertical_actuator.last_position = vertical_actuator.current_position;
+
+    horizontal_actuator.current_position = ReadPositionSensor(&horizontal_actuator);
+    horizontal_actuator.current_speed = (horizontal_actuator.current_position - horizontal_actuator.last_position) / dt;
+    horizontal_actuator.last_position = horizontal_actuator.current_position;
+
+    tilt_actuator.current_position = ReadPositionSensor(&tilt_actuator);
+    tilt_actuator.current_speed = (tilt_actuator.current_position - tilt_actuator.last_position) / dt;
+    tilt_actuator.last_position = tilt_actuator.current_position;
+
+    printf("Speed ver=%.1f, hor=%.1f, tilt=%.1f\n", vertical_actuator.current_speed, horizontal_actuator.current_speed, tilt_actuator.current_speed);
+}
+
+// 系统主更新函数
+void ActuatorSystem_Update(void) {
+    if (current_state != SYSTEM_MOVING) {
+        return;
+    }
+
+    // 计算同步因子
+    CalculateSyncFactor();
+
+    // 更新所有执行器
+    if(vertical_actuator.state == SYSTEM_MOVING)
+    	UpdateActuator(&vertical_actuator, total_speed_factor);
+    if(horizontal_actuator.state == SYSTEM_MOVING)
+    	UpdateActuator(&horizontal_actuator, total_speed_factor);
+    if(tilt_actuator.state == SYSTEM_MOVING)
+    	UpdateActuator(&tilt_actuator, total_speed_factor);
+
+    if(Actuator_debug!=0)
+    	printf("ActuatorSystem_Update, ver=%.1f, err=%.1f; hor=%.1f, err=%.1f; tilt=%.1f, err=%.1f\n", vertical_actuator.prev_output, vertical_actuator.position_error, horizontal_actuator.prev_output, horizontal_actuator.position_error, tilt_actuator.prev_output, tilt_actuator.position_error);
+
+//    // 更新运动状态
+//    UpdateMotionStatus(&vertical_actuator);
+//    UpdateMotionStatus(&horizontal_actuator);
+//    UpdateMotionStatus(&tilt_actuator);
+
+    // 检查同步状态和错误处理
+//    if (!CheckSynchronization() || !CheckSystemErrors()) {
+//        HandleSystemError();
+//        return;
+//    }
+
+    // 检查是否到达目标位置
+    if (IsTargetReached()) {
+        FinishMotion();
+    }
+}
+
+SystemState ActuatorSystem_GetState(void) {
+    return current_state;
+}
+
+// 运动完成处理
+static void FinishMotion(void) {
+//    // 平滑停止所有执行器
+//    SmoothStop(&vertical_actuator);
+//    SmoothStop(&horizontal_actuator);
+//    SmoothStop(&tilt_actuator);
+    SetActuatorSpeed(&vertical_actuator, 0);
+    SetActuatorSpeed(&horizontal_actuator, 0);
+    SetActuatorSpeed(&tilt_actuator, 0);
+    current_state = SYSTEM_FINISH;	//SYSTEM_IDLE;
+    if((Lifter_Error_Debug!=0) || (Actuator_debug!=0))
+    	printf("FinishMotion ");
+    Encoder_Show_Value();
+	if((GPIO_Get_Sensor() & ESTOP_KEY)==0)
+		LED_RS485_Color(LED_GREEN_COLOR,10);
+    // 清除所有PID控制器的积分项
+//    ResetPIDControllers();
+}
+
+
+static void HandleSystemError(void) {
+    // 紧急停止所有执行器
+    SetActuatorSpeed(&vertical_actuator, 0);
+    SetActuatorSpeed(&horizontal_actuator, 0);
+    SetActuatorSpeed(&tilt_actuator, 0);
+
+    current_state = SYSTEM_ERROR;
+	LED_RS485_Color(LED_RED_COLOR,10);
+}
+
+void Set_vkp(float value)
+{
+    vertical_actuator.position_pid.kp = value;
+}
+void Set_vki(float value)
+{
+    vertical_actuator.position_pid.ki = value;
+}
+void Set_vkd(float value)
+{
+    vertical_actuator.position_pid.kd = value;
+}
+
+void Show_PID(void)
+{
+	printf("Vkp=%.3f, Vki=%.3f, Vkd=%.3f\n",vertical_actuator.position_pid.kp, vertical_actuator.position_pid.ki, vertical_actuator.position_pid.kd);
+}

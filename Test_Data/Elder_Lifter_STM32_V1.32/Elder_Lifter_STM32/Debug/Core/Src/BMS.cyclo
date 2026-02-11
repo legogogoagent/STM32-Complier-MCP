@@ -1,0 +1,10 @@
+../Core/Src/BMS.c:23:6:BMS_Init	1
+../Core/Src/BMS.c:31:6:BMS_Debug	1
+../Core/Src/BMS.c:36:9:BMS_Read_Percent	1
+../Core/Src/BMS.c:41:9:BMS_Read_Voltage	1
+../Core/Src/BMS.c:46:9:BMS_Ready	2
+../Core/Src/BMS.c:60:6:BMS_GetValue	4
+../Core/Src/BMS.c:74:10:BMS_Serial_Handler	2
+../Core/Src/BMS.c:88:9:BMS_Serial_CheckPacket	6
+../Core/Src/BMS.c:100:6:BMS_CheckCRC	3
+../Core/Src/BMS.c:112:6:BMS_Show_Value	1

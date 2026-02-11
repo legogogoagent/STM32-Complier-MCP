@@ -1,0 +1,9 @@
+../Core/Src/GPIO.c:60:6:GPIO_Init	1
+../Core/Src/GPIO.c:67:9:GPIO_Get_Sensor	10
+../Core/Src/GPIO.c:102:9:GPIO_Get_Key	6
+../Core/Src/GPIO.c:119:6:GPIO_Set_Key_Led	2
+../Core/Src/GPIO.c:136:6:GPIO_Set_Buzzer	2
+../Core/Src/GPIO.c:145:6:GPIO_Trigger_Power_Switch	1
+../Core/Src/GPIO.c:153:6:Flash_Handler	4
+../Core/Src/GPIO.c:174:9:Scankey_Handler	4
+../Core/Src/GPIO.c:199:9:Scankey_GetKey	2

@@ -1,0 +1,4 @@
+../Core/Src/USB_Serial.c:28:6:USB_Serial_Init	4	static
+../Core/Src/USB_Serial.c:37:6:USB_Serial_Tx	16	static
+../Core/Src/USB_Serial.c:51:6:USB_Serial_Rx_ISR	16	static
+../Core/Src/USB_Serial.c:66:15:USB_Serial_Handler	8	static

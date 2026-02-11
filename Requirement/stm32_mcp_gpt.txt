@@ -1,0 +1,269 @@
+# STM32CubeMX 工程：本地 Agent 自动修复 + MCP(Docker) 编译闭环（需求与方案说明）
+
+## 1. 背景与目标
+
+我有一个由 **STM32CubeMX** 生成的工程（默认 **Makefile** 构建）。我希望实现一个“本地自动修复闭环”：
+
+- **代码放在本地 workspace**
+- **Agent 在本地读取/修改代码**
+- Agent 通过调用 **MCP Build Server** 触发编译
+- **MCP 只负责在 Docker 里编译**（不修改源码），并把编译/链接报错返回给 Agent
+- 如有报错，Agent 继续修复 → 再编译 → 直到无报错（或达到迭代上限）
+
+最终目标是：让 Agent 能稳定执行“改代码 → 编译 → 解析错误 → 再改代码”的循环，使工程在命令行环境中编译通过。
+
+---
+
+## 2. 总体原则（必须遵守）
+
+### 2.1 权责边界（非常重要）
+- **Agent：唯一允许修改 workspace 源码的人/程序**
+- **MCP Build Server：只提供编译能力**
+  - 通过 Docker 编译
+  - workspace 以 **只读**方式挂载入容器（`:ro`）
+  - 容器内将 `/src` 拷贝到可写临时目录后编译
+  - 将编译日志与产物输出到宿主机的 out 目录
+- **Docker 容器：不可联网**（`--network=none`），并建议限制 CPU/内存
+
+### 2.2 兼容 STM32CubeMX 的代码修改策略
+为了避免未来“重新生成代码”导致改动丢失，Agent 修改代码时遵循：
+1) 优先修改 **自建模块目录**（例如 `App/`、`User/` 等，不会被 CubeMX 覆盖）
+2) 其次修改 CubeMX 已提供的 `/* USER CODE BEGIN */ ... /* USER CODE END */` 区块
+3) **尽量避免修改** `Drivers/`、`Middlewares/` 等生成/库目录（除非错误明确且确需修改）
+
+> 本项目闭环不包含“CubeMX 重新生成代码”，但仍建议从一开始就遵循上述策略。
+
+---
+
+## 3. 系统架构
+
+### 3.1 组件列表
+| 组件 | 位置 | 职责 |
+|---|---|---|
+| Workspace（CubeMX 工程） | 本地 | 代码与 Makefile 工程根目录 |
+| Agent | 本地 | 读/改代码、调用 MCP、根据错误迭代修复 |
+| MCP Build Server（FastMCP） | 本地 | 暴露 `build_firmware` 工具；只负责 Docker 编译并返回结构化错误 |
+| Docker Image（STM32 Toolchain） | 本地 | 提供 `arm-none-eabi-gcc`、`make` 等编译依赖 |
+| build.sh（容器内入口脚本） | workspace/tools | 在容器内执行：拷贝源码→make→保存日志→收集产物 |
+| GCC/LD 错误解析器 | MCP 侧 | 把日志解析为结构化 `errors[]` 供 Agent 定位 |
+
+### 3.2 数据流（compile-fix loop）
+1. Agent 修改 workspace 文件
+2. Agent 调用 MCP：`build_firmware(workspace=...)`
+3. MCP 启动 Docker：
+   - `-v workspace:/src:ro`
+   - `-v outdir:/out:rw`
+   - `--network=none`
+4. 容器内执行 `/src/tools/build.sh`
+5. MCP 读取 `/out/build.log`，解析为 `errors[]`，返回给 Agent
+6. Agent 根据 `errors[]` 修复，重复步骤 2~5，直到：
+   - `exit_code == 0`（成功），或
+   - 达到最大迭代次数（失败退出并输出诊断信息）
+
+---
+
+## 4. 功能需求（Functional Requirements）
+
+### 4.1 MCP Build Server：必须提供的工具
+必须实现一个 MCP tool（名称建议固定，便于 Agent 稳定调用）：
+
+#### Tool: `build_firmware`
+**输入参数（建议）**
+- `workspace: string`  
+  本地工程根目录路径（必须是目录）
+- `project_subdir: string = ""`  
+  若 Makefile 不在根目录，指定相对路径子目录
+- `clean: bool = true`  
+  是否在构建前执行 `make clean`
+- `jobs: int = 8`  
+  `make -j` 并发数（<=0 表示不用 -j）
+- `make_target: string = "all"`  
+  Make 目标
+- `timeout_sec: int = 600`  
+  Docker 编译超时
+- `max_log_tail_kb: int = 96`  
+  返回日志尾部大小（避免 token 爆炸）
+- `image: string = ""`  
+  可选：覆盖默认 docker image（为空用默认）
+
+**输出结构（必须包含）**
+- `ok: bool`（等价于 `exit_code == 0`）
+- `exit_code: int`
+- `errors: array`（结构化错误列表）
+- `log_tail: string`（build.log 尾部）
+- `artifacts: array[string]`（产物路径列表，可返回宿主机绝对路径）
+- 可选：`outdir: string`（保存 build.log 与产物的临时目录，便于人工排查）
+- 可选：`docker_tail: string`（docker stdout/stderr 尾部）
+
+**errors[] 的单条结构（建议标准化）**
+- `type: "compiler" | "linker" | "toolchain" | "system"`
+- `severity: "error" | "warning" | "note"`
+- `file: string | null`
+- `line: int | null`
+- `col: int | null`
+- `message: string`
+- `raw: string`（原始行，便于调试）
+
+### 4.2 Docker 编译环境
+必须提供一个可构建的 docker 镜像，至少包含：
+- `arm-none-eabi-gcc`（GNU 工具链）
+- `make`
+- `bash`
+- `python3`（有些工程脚本可能需要）
+- 常用 shell 工具：`grep/sed/awk/find/file` 等
+
+**容器执行要求：**
+- 禁网：`--network=none`
+- 建议资源限制：`--cpus`、`--memory`（可配置）
+- workspace 只读挂载：`-v "$workspace:/src:ro"`
+
+### 4.3 build.sh（容器内编译脚本）
+`tools/build.sh` 必须：
+- 从 `/src` 拷贝源码到 `/work/project`（可写目录）
+- 进入工程目录（可选 `PROJECT_SUBDIR`）
+- 执行：
+  - `make clean`（可选，受 `CLEAN` 控制）
+  - `make`（支持 `-j`）
+- 将完整构建输出写到 `/out/build.log`
+- 尝试将 `.elf/.hex/.bin` 收集到 `/out/artifacts/`（可选但推荐）
+
+---
+
+## 5. 非功能需求（Non-Functional Requirements）
+
+### 5.1 安全与隔离
+- MCP Build Server 必须限制：
+  - workspace 路径（建议限定在 `ALLOWED_ROOT` 下）
+  - 仅允许执行固定的 build 流程（不接受任意 shell 命令注入）
+- 容器禁网
+- 超时控制（防止卡死）
+- 日志截断返回（防止大日志造成上下文溢出）
+
+### 5.2 可复现性
+- Docker 镜像构建步骤可重复
+- build.sh 作为容器内唯一入口，避免环境漂移
+- 输出结构稳定，便于 Agent 依赖
+
+### 5.3 可观测性
+- `outdir` 中保留：
+  - `build.log`
+  - `artifacts/`
+- 返回 `log_tail` 给 Agent 快速判断
+
+---
+
+## 6. Agent 侧策略（实现“报错就修复直到成功”）
+
+### 6.1 迭代策略（建议硬规则）
+- 最大迭代次数：例如 20（可配置）
+- 每轮最多提交补丁数：1~3 个“最小修改”
+- 优先级：
+  1) 先修 `compiler` 的 `error`
+  2) 再修 `linker` 的 `error`
+  3) `warning` 默认不阻断，但可配置为需要清理
+- 禁止或尽量避免修改目录（除非必要）：
+  - `Drivers/`
+  - `Middlewares/`
+  - `Core/Startup/`
+  - 链接脚本等高风险文件（除非错误明确指向）
+
+### 6.2 结束条件
+- `ok == true` → 成功
+- 或达到最大迭代次数 → 输出：
+  - 最关键的前 N 条错误（建议 5 条）
+  - 最近一次 `log_tail`
+  - 当前 diff/修改清单（便于人工介入）
+
+---
+
+## 7. 建议的仓库骨架（Deliverables）
+
+### 7.1 目录结构
+your-cubemx-project/ Core/ Drivers/ ... Makefile
+
+tools/ build.sh
+
+docker/ Dockerfile
+
+mcp_build/ stm32_build_server.py gcc_parse.py init.py
+
+requirements.txt
+
+text
+
+
+### 7.2 环境变量/配置项（建议）
+- `STM32_BUILD_IMAGE`：默认 docker image 名称
+- `STM32_ALLOWED_ROOT`：允许的 workspace 根目录（安全边界）
+- `PROJECT_SUBDIR`：Makefile 子目录（由 MCP 调用参数传入也可）
+- `CLEAN/JOBS/MAKE_TARGET`：由 MCP server 注入容器环境变量
+
+---
+
+## 8. 本地运行与验收（Acceptance Criteria）
+
+### 8.1 基础构建验收
+1) 能成功 `docker build -t stm32-toolchain:latest -f docker/Dockerfile .`
+2) 能运行：
+   - `docker run --rm stm32-toolchain:latest arm-none-eabi-gcc --version`
+3) 启动 MCP Build Server（stdio 模式）
+4) 调用 `build_firmware(workspace=<工程路径>)`：
+   - 若工程本身可编译：返回 `ok=true`
+   - 若工程有错误：返回 `ok=false` 且 `errors[]` 至少包含可定位的信息（file/line/message）
+
+### 8.2 “只编译不改源码”验收
+- 在调用 MCP 编译前后，对 workspace 做校验（例如 hash/diff）：
+  - MCP 编译前后 workspace 文件内容不变（除非 Agent 自己改了）
+- 确保 docker run 使用 `:ro` 挂载 workspace
+
+### 8.3 错误解析验收
+准备一个故意引入错误的提交（例如缺 include、未定义符号）：
+- `errors[]` 能捕获：
+  - 编译期 `file:line:col: error: ...`
+  - 链接期 `undefined reference ...`
+- `log_tail` 包含足够上下文
+
+---
+
+## 9. 实现任务拆分（给 Agent 的开发 TODO 清单）
+
+### 9.1 Docker & build.sh
+- [ ] 新增 `docker/Dockerfile` 并可成功构建镜像
+- [ ] 新增 `tools/build.sh`，实现：拷贝→make→输出 `/out/build.log`→收集产物
+- [ ] 验证：容器内运行 build.sh 能编译工程（或正确产生错误日志）
+
+### 9.2 MCP Build Server（FastMCP）
+- [ ] 新增 `mcp_build/stm32_build_server.py`（stdio 运行）
+- [ ] 实现 tool：`build_firmware`
+- [ ] docker run：workspace 只读挂载、禁网、超时
+- [ ] 生成临时 outdir，读取 build.log，返回结构化结果
+
+### 9.3 GCC/LD 解析器
+- [ ] 新增 `mcp_build/gcc_parse.py`
+- [ ] 支持解析：
+  - `file:line:col: error|warning|note: ...`
+  - 常见链接错误关键字
+- [ ] 将容器内路径归一化为相对路径（便于定位 workspace 文件）
+
+### 9.4 质量与安全
+- [ ] 增加 workspace 路径白名单（`ALLOWED_ROOT`）
+- [ ] 增加日志 tail 截断
+- [ ] 增加资源限制参数（可选）
+
+---
+
+## 10. 可选增强（后续迭代）
+- 增加 `ccache`（挂载持久缓存目录，加速多轮编译）
+- 增加 artifacts 的标准化输出（固定输出目录、固定命名）
+- 增加对 CMake/Ninja 工程的支持（部分 CubeMX 输出可选）
+- 增加“仅返回 top N 错误 + 关联源文件片段”的辅助接口（通常能提升修复成功率）
+
+---
+
+## 11. 最终交付物定义（Definition of Done）
+当满足以下条件时，本项目实现完成：
+- MCP Build Server 可在本地启动并被 Agent 调用
+- MCP 能在 Docker 中稳定编译 CubeMX Makefile 工程
+- MCP 返回结构化错误列表 + 日志尾部
+- workspace 在 MCP 编译过程中保持不变（只读挂载 + 容器内拷贝构建）
+- Agent 可基于 `errors[]` 实现自动迭代修复（本说明定义的策略可直接作为 agent instructions）

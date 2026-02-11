@@ -1,0 +1,12 @@
+../Core/Src/Encoder.c:27:6:Encoder_Init	8	static
+../Core/Src/Encoder.c:36:6:Encoder_Debug	16	static
+../Core/Src/Encoder.c:41:10:Encoder_Read	16	static
+../Core/Src/Encoder.c:46:9:Encoder_Ready	4	static
+../Core/Src/Encoder.c:54:9:Encoder_Check_Pause	4	static
+../Core/Src/Encoder.c:62:6:Encoder_Set_Pause	16	static
+../Core/Src/Encoder.c:72:6:Encoder_GetValue	8	static
+../Core/Src/Encoder.c:91:10:Encoder_Serial_Handler	24	static
+../Core/Src/Encoder.c:124:9:Encoder_Serial_CheckPacket	24	static
+../Core/Src/Encoder.c:136:6:Encoder_Write_Calibrate	8	static
+../Core/Src/Encoder.c:145:6:Encoder_Show_Value	8	static
+../Core/Src/Encoder.c:150:6:Encoder_Show_Offset	8	static

@@ -1,0 +1,5 @@
+../Core/Src/User_ADC.c:15:6:User_ADC_Init	8	static
+../Core/Src/User_ADC.c:23:6:HAL_ADC_ConvCpltCallback	16	static
+../Core/Src/User_ADC.c:28:10:Get_ADC1	16	static
+../Core/Src/User_ADC.c:35:10:Get_ADC2	16	static
+../Core/Src/User_ADC.c:42:6:Show_ADC	72	static

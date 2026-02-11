@@ -1,0 +1,61 @@
+# Git忽略文件
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+.dockerignore
+
+# Build outputs
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.o
+*.d
+
+# MCP build outputs
+out/
+build/
+outdir/
+
+# Session memory (except the template)
+.opencode/*
+!.opencode/.gitkeep
+
+# Test artifacts
+*.log

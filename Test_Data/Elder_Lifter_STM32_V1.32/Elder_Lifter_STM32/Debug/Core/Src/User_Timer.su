@@ -1,0 +1,2 @@
+../Core/Src/User_Timer.c:12:6:User_Timer_Init	4	static
+../Core/Src/User_Timer.c:17:6:User_Timer_10Hz_ISR	4	static

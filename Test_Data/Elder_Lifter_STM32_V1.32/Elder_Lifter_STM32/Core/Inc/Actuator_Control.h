@@ -1,0 +1,31 @@
+// 系统状态枚举
+typedef enum {
+    SYSTEM_IDLE,
+    SYSTEM_MOVING,
+	SYSTEM_PAUSE,
+	SYSTEM_FINISH,
+    SYSTEM_ERROR
+} SystemState;
+
+void Actuator_Control_Init(void);
+void Actuator_Control_Handler(void);
+void ActuatorSystem_SetTarget(uint16_t vertical, uint16_t horizontal, uint16_t tilt);
+void ActuatorSystem_SetTarget_withoutInit(uint16_t vertical, uint16_t horizontal, uint16_t tilt);
+void ActuatorSystem_ToggleTarget(uint16_t vertical, uint16_t horizontal, uint16_t tilt);
+void Show_Actuator_Speed(void);
+void ActuatorSystem_Stop(void);
+uint8_t Actuator_Set_Look_Ahead_Distance(uint16_t v_ahead, uint16_t h_ahead, uint16_t t_ahead);
+uint8_t Actuator_Reach_Look_Ahead_Distance(void);
+
+void Set_vkp(float value);
+void Set_vki(float value);
+void Set_vkd(float value);
+void Show_PID(void);
+uint8_t Actuator_Get_State(void);
+void Actuator_Set_Output(uint8_t motor, int8_t output);
+void Actuator_Set_Total_Speed(float speed);
+void Actuator_Set_Soft_Start(void);
+SystemState ActuatorSystem_GetState(void);
+void Actuator_Set_Debug(uint8_t enable);
+
+

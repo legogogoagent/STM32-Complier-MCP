@@ -1,0 +1,4 @@
+../Core/Src/Modbus.c:15:6:Modbus_CheckCRC	24	static
+../Core/Src/Modbus.c:30:10:Modbus_CalCRC	24	static
+../Core/Src/Modbus.c:49:10:Modbus_CalCRC_16bit	24	static
+../Core/Src/Modbus.c:68:10:Modbus_CalCRC_Increase	24	static

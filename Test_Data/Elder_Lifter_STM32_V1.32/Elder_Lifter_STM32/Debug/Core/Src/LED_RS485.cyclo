@@ -1,0 +1,2 @@
+../Core/Src/LED_RS485.c:21:6:LED_RS485_Init	1
+../Core/Src/LED_RS485.c:27:6:LED_RS485_Color	3
