@@ -53,9 +53,8 @@ out/
 build/
 outdir/
 
-# Session memory (except the template)
-.opencode/*
-!.opencode/.gitkeep
+# Session memory
+.opencode/session.json
 
 # Test artifacts
 *.log
