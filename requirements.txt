@@ -1,2 +1,14 @@
+# STM32 MCP Build Server - Python Dependencies
+
+# Core dependencies (required)
 fastmcp>=0.4.0
 pydantic>=2.0.0
+
+# Serial port support (required for local flashing)
+pyserial>=3.5
+
+# Phase 2 dependencies (optional, for ESP32 remote flashing)
+# Uncomment these when implementing Phase 2:
+# websockets>=11.0
+# zeroconf>=0.40.0
+# aiohttp>=3.8.0

@@ -1,0 +1,108 @@
+# 双MCP架构 - Docker Compose配置
+# 同时编排Build MCP和Flash MCP服务
+
+version: '3.8'
+
+services:
+  # Build MCP服务 - 编译STM32固件
+  stm32-build:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: stm32-toolchain:latest
+    container_name: stm32-build-mcp
+    volumes:
+      # 源码目录（只读）
+      - ${WORKSPACE:-./Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32}:/src:ro
+      # 编译输出目录
+      - ${OUTPUT_DIR:-./out}:/out
+      # 工作目录
+      - build-work:/work
+    working_dir: /work
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    command: ["bash", "-c", "echo 'Build MCP Ready' && tail -f /dev/null"]
+    profiles:
+      - build
+      - all
+
+  # Flash MCP服务 - 烧录固件到MCU
+  stm32-flash:
+    build:
+      context: ..
+      dockerfile: docker/flash.Dockerfile
+    image: stm32-flash-toolchain:latest
+    container_name: stm32-flash-mcp
+    privileged: true  # USB设备访问需要特权模式
+    volumes:
+      # 源码目录（只读）
+      - ${WORKSPACE:-./Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32}:/src:ro
+      # 编译输出目录（包含hex文件）
+      - ${OUTPUT_DIR:-./out}:/out:ro
+      # USB设备透传
+      - /dev/bus/usb:/dev/bus/usb
+      # udev规则（主机规则映射到容器）
+      - /etc/udev/rules.d:/etc/udev/rules.d:ro
+    working_dir: /work
+    # 网络隔离
+    network_mode: none
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    command: ["bash", "-c", "echo 'Flash MCP Ready' && tail -f /dev/null"]
+    profiles:
+      - flash
+      - all
+
+  # 一次性编译任务
+  build-once:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: stm32-toolchain:latest
+    container_name: stm32-build-once
+    volumes:
+      - ${WORKSPACE:-./Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32}:/src:ro
+      - ${OUTPUT_DIR:-./out}:/out
+      - build-work:/work
+    working_dir: /src
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    command: ["make", "clean", "all"]
+    profiles:
+      - build-once
+
+  # 一次性烧录任务
+  flash-once:
+    build:
+      context: ..
+      dockerfile: docker/flash.Dockerfile
+    image: stm32-flash-toolchain:latest
+    container_name: stm32-flash-once
+    privileged: true
+    volumes:
+      - ${OUTPUT_DIR:-./out}:/out:ro
+      - /dev/bus/usb:/dev/bus/usb
+    working_dir: /out
+    network_mode: none
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+      - HEX_FILE=${HEX_FILE:-artifacts/Elder_Lifter_STM32.hex}
+    command: ["flash.sh", "/out/${HEX_FILE}"]
+    profiles:
+      - flash-once
+
+volumes:
+  build-work:
+    driver: local

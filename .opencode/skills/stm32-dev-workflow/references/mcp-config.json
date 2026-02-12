@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "stm32-build": {
+      "command": "python",
+      "args": ["-m", "mcp_build.stm32_build_server"],
+      "cwd": "/home/abc/projects/STM32_Complier_MCP",
+      "env": {
+        "PYTHONPATH": "/home/abc/projects/STM32_Complier_MCP"
+      }
+    },
+    "stm32-flash": {
+      "command": "python",
+      "args": ["-m", "mcp_flash.stm32_flash_server_v2"],
+      "cwd": "/home/abc/projects/STM32_Complier_MCP",
+      "env": {
+        "PYTHONPATH": "/home/abc/projects/STM32_Complier_MCP"
+      }
+    }
+  }
+}
