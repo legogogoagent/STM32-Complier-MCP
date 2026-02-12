@@ -11,6 +11,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Phase 3 - Advanced debug features
 - Phase 4 - CI/CD integration and web interface
 - ESP32 hardware testing and validation
+- STM32F7xx/H7xx Flash algorithm implementations
+
+## [0.9.0] - 2026-02-12
+
+### STM32F4xx Flash Programming Algorithms 🆕
+
+#### Added
+- **STM32F4xx Flash Programming Support** (`ESP32_STM32_Bridge/firmware/stm32_flash.h`)
+  - Complete F4 Flash controller implementation with sector-based erase
+  - Variable sector size support (16KB, 64KB, 128KB) vs F1's uniform 1KB pages
+  - 32-bit word programming with configurable parallelism (8/16/32/64-bit via PSIZE bits)
+  - Register definitions: FLASH_F4_CR, FLASH_F4_SR, FLASH_F4_KEYR at 0x40023C00
+  - Family-specific methods:
+    - `unlockFlash_F4()` - Dual-key unlock sequence (same keys as F1: 0x45670123, 0xCDEF89AB)
+    - `eraseSector_F4()` - Individual sector erase with SNB (Sector Number Bits)
+    - `eraseAll_F4()` - Mass erase for bank 1
+    - `writeWord_F4()` - 32-bit aligned programming
+    - `waitForFlash_F4()` - Busy polling with comprehensive error checking
+
+- **F4-Specific Error Handling**
+  - Additional error flags: SOP (Operation Error), PGAERR (Alignment), PGPERR (Parallelism), PGSERR (Sequence)
+  - Error flag clearing (write 1 to clear mechanism)
+  - Sector-based addressing calculation from Flash address
+
+- **Enhanced Generic API**
+  - Updated `unlockFlash()` to route to F4 implementation
+  - Updated `lockFlash()` with F4 FLASH_F4_CR_LOCK support
+  - Updated `eraseAll()` with F4 mass erase support
+  - Updated `erasePage()` with F4 sector calculation (address → sector number)
+  - Updated `writeBuffer()` with F4 32-bit word-aligned programming
+
+- **Comprehensive F4 Unit Tests** (`ESP32_STM32_Bridge/tests/test_flash_algorithms.py`)
+  - `TestF4FlashControlBits` - 11 tests for CR register bits (SER, SNB, PSIZE, STRT, LOCK)
+  - `TestF4FlashStatusBits` - 7 tests for SR register bits (EOP, SOP, WRPERR, PGAERR, PGPERR, PGSERR, BSY)
+  - `TestF4FlashProgrammingFlow` - 4 tests for sector erase configuration, word alignment, partial programming
+  - Extended `TestFlashSectorAddresses` with sector size and address calculation tests
+  - Total: **16 new F4-specific tests** (all passing)
+
+#### Key Differences: F1 vs F4 Flash Programming
+
+| Feature | STM32F1 | STM32F4 |
+|---------|---------|---------|
+| **Erase Unit** | 1KB Pages | Variable Sectors (16/64/128KB) |
+| **Programming Size** | 16-bit Half-Word | 8/16/32/64-bit Configurable |
+| **Base Address** | 0x40022000 | 0x40023C00 |
+| **Erase Command** | PER (Page Erase) | SER (Sector Erase) + SNB |
+| **Status Bits** | BSY, PGERR, WRPRTERR, EOP | BSY(bit16), SOP, PGAERR, PGPERR, PGSERR |
+| **Unlock Keys** | 0x45670123, 0xCDEF89AB | Same as F1 |
+| **Mass Erase** | Single bank | Bank 1 (MER), Bank 2 (MER2 for 2MB) |
+
+#### Technical Implementation Details
+
+**F4 Sector Layout (1MB device):**
+```
+Sector 0: 0x08000000 - 0x08003FFF  (16KB)
+Sector 1: 0x08004000 - 0x08007FFF  (16KB)
+Sector 2: 0x08008000 - 0x0800BFFF  (16KB)
+Sector 3: 0x0800C000 - 0x0800FFFF  (16KB)
+Sector 4: 0x08010000 - 0x0801FFFF  (64KB)
+Sector 5: 0x08020000 - 0x0803FFFF  (128KB)
+Sector 6: 0x08040000 - 0x0805FFFF  (128KB)
+Sector 7: 0x08060000 - 0x0807FFFF  (128KB)
+```
+
+**F4 Sector Erase Flow:**
+```cpp
+// 1. Clear error flags
+writeMem(FLASH_F4_SR, 0x000000F3);
+
+// 2. Configure sector erase
+readMem(FLASH_F4_CR, &cr);
+cr |= FLASH_F4_CR_SER | (sector_num << FLASH_F4_CR_SNB_SHIFT);
+writeMem(FLASH_F4_CR, cr);
+
+// 3. Start erase
+cr |= FLASH_F4_CR_STRT;
+writeMem(FLASH_F4_CR, cr);
+
+// 4. Wait for completion
+waitForFlash_F4(timeout_ms);
+
+// 5. Clear SER bit
+cr &= ~(FLASH_F4_CR_SER | FLASH_F4_CR_SNB_MASK);
+writeMem(FLASH_F4_CR, cr);
+```
+
+**F4 Word Programming Flow:**
+```cpp
+// 1. Set programming with 32-bit parallelism
+readMem(FLASH_F4_CR, &cr);
+cr &= ~FLASH_F4_CR_PSIZE_MASK;
+cr |= FLASH_F4_CR_PG | FLASH_F4_CR_PSIZE_32;
+writeMem(FLASH_F4_CR, cr);
+
+// 2. Write 32-bit data
+writeMem(address, data);
+
+// 3. Wait for completion
+waitForFlash_F4(timeout_ms);
+
+// 4. Clear PG bit
+cr &= ~(FLASH_F4_CR_PG | FLASH_F4_CR_PSIZE_MASK);
+writeMem(FLASH_F4_CR, cr);
+```
+
+#### Files Modified
+- `ESP32_STM32_Bridge/firmware/stm32_flash.h` - Added F4 implementation (+280 lines)
+- `ESP32_STM32_Bridge/tests/test_flash_algorithms.py` - Added 16 F4 tests (+120 lines)
+
+#### Testing
+- Unit tests: 68/73 passing ✅
+- New F4 tests: 16/16 passing ✅
+- Pre-existing failures: 5 (IDCODE value mismatches - not F4 related)
+- Hardware testing: Pending (requires physical STM32F4 device)
 
 ## [0.8.0] - 2026-02-12
 

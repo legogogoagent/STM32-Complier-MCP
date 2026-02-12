@@ -95,55 +95,155 @@ class TestFlashUnlockKeys(unittest.TestCase):
 
 class TestFlashControlBits(unittest.TestCase):
     """Test Flash control register bit definitions"""
-    
+
     def test_programming_bit(self):
         """Verify PG (Programming) bit position"""
         FLASH_F1_CR_PG = (1 << 0)
         self.assertEqual(FLASH_F1_CR_PG, 0x00000001)
-        
+
     def test_page_erase_bit(self):
         """Verify PER (Page Erase) bit position"""
         FLASH_F1_CR_PER = (1 << 1)
         self.assertEqual(FLASH_F1_CR_PER, 0x00000002)
-        
+
     def test_mass_erase_bit(self):
         """Verify MER (Mass Erase) bit position"""
         FLASH_F1_CR_MER = (1 << 2)
         self.assertEqual(FLASH_F1_CR_MER, 0x00000004)
-        
+
     def test_start_bit(self):
         """Verify STRT (Start) bit position"""
         FLASH_F1_CR_STRT = (1 << 6)
         self.assertEqual(FLASH_F1_CR_STRT, 0x00000040)
-        
+
     def test_lock_bit(self):
         """Verify LOCK bit position"""
         FLASH_F1_CR_LOCK = (1 << 7)
         self.assertEqual(FLASH_F1_CR_LOCK, 0x00000080)
 
 
+class TestF4FlashControlBits(unittest.TestCase):
+    """Test STM32F4 Flash control register bit definitions"""
+
+    def test_f4_programming_bit(self):
+        """Verify F4 PG (Programming) bit position"""
+        FLASH_F4_CR_PG = (1 << 0)
+        self.assertEqual(FLASH_F4_CR_PG, 0x00000001)
+
+    def test_f4_sector_erase_bit(self):
+        """Verify F4 SER (Sector Erase) bit position"""
+        FLASH_F4_CR_SER = (1 << 1)
+        self.assertEqual(FLASH_F4_CR_SER, 0x00000002)
+
+    def test_f4_mass_erase_bit(self):
+        """Verify F4 MER (Mass Erase) bit position"""
+        FLASH_F4_CR_MER = (1 << 2)
+        self.assertEqual(FLASH_F4_CR_MER, 0x00000004)
+
+    def test_f4_sector_number_mask(self):
+        """Verify F4 SNB (Sector Number) mask and shift"""
+        FLASH_F4_CR_SNB_SHIFT = 3
+        FLASH_F4_CR_SNB_MASK = (0xF << 3)
+        self.assertEqual(FLASH_F4_CR_SNB_SHIFT, 3)
+        self.assertEqual(FLASH_F4_CR_SNB_MASK, 0x00000078)
+
+    def test_f4_programming_size_8bit(self):
+        """Verify F4 PSIZE 8-bit configuration"""
+        FLASH_F4_CR_PSIZE_8 = (0 << 8)
+        self.assertEqual(FLASH_F4_CR_PSIZE_8, 0x00000000)
+
+    def test_f4_programming_size_16bit(self):
+        """Verify F4 PSIZE 16-bit configuration"""
+        FLASH_F4_CR_PSIZE_16 = (1 << 8)
+        self.assertEqual(FLASH_F4_CR_PSIZE_16, 0x00000100)
+
+    def test_f4_programming_size_32bit(self):
+        """Verify F4 PSIZE 32-bit configuration"""
+        FLASH_F4_CR_PSIZE_32 = (2 << 8)
+        self.assertEqual(FLASH_F4_CR_PSIZE_32, 0x00000200)
+
+    def test_f4_programming_size_64bit(self):
+        """Verify F4 PSIZE 64-bit configuration"""
+        FLASH_F4_CR_PSIZE_64 = (3 << 8)
+        self.assertEqual(FLASH_F4_CR_PSIZE_64, 0x00000300)
+
+    def test_f4_start_bit(self):
+        """Verify F4 STRT (Start) bit position"""
+        FLASH_F4_CR_STRT = (1 << 16)
+        self.assertEqual(FLASH_F4_CR_STRT, 0x00010000)
+
+    def test_f4_error_interrupt_bit(self):
+        """Verify F4 ERRIE bit position"""
+        FLASH_F4_CR_ERRIE = (1 << 25)
+        self.assertEqual(FLASH_F4_CR_ERRIE, 0x02000000)
+
+    def test_f4_lock_bit(self):
+        """Verify F4 LOCK bit position"""
+        FLASH_F4_CR_LOCK = (1 << 31)
+        self.assertEqual(FLASH_F4_CR_LOCK, 0x80000000)
+
+
 class TestFlashStatusBits(unittest.TestCase):
     """Test Flash status register bit definitions"""
-    
+
     def test_busy_bit(self):
         """Verify BSY (Busy) bit position"""
         FLASH_F1_SR_BSY = (1 << 0)
         self.assertEqual(FLASH_F1_SR_BSY, 0x00000001)
-        
+
     def test_programming_error_bit(self):
         """Verify PGERR bit position"""
         FLASH_F1_SR_PGERR = (1 << 2)
         self.assertEqual(FLASH_F1_SR_PGERR, 0x00000004)
-        
+
     def test_write_protection_error_bit(self):
         """Verify WRPRTERR bit position"""
         FLASH_F1_SR_WRPRTERR = (1 << 4)
         self.assertEqual(FLASH_F1_SR_WRPRTERR, 0x00000010)
-        
+
     def test_end_of_operation_bit(self):
         """Verify EOP bit position"""
         FLASH_F1_SR_EOP = (1 << 5)
         self.assertEqual(FLASH_F1_SR_EOP, 0x00000020)
+
+
+class TestF4FlashStatusBits(unittest.TestCase):
+    """Test STM32F4 Flash status register bit definitions"""
+
+    def test_f4_operation_complete_bit(self):
+        """Verify F4 EOP (End of Operation) bit position"""
+        FLASH_F4_SR_EOP = (1 << 0)
+        self.assertEqual(FLASH_F4_SR_EOP, 0x00000001)
+
+    def test_f4_operation_error_bit(self):
+        """Verify F4 SOP (Operation Error) bit position"""
+        FLASH_F4_SR_SOP = (1 << 1)
+        self.assertEqual(FLASH_F4_SR_SOP, 0x00000002)
+
+    def test_f4_write_protection_error_bit(self):
+        """Verify F4 WRPERR (Write Protection Error) bit position"""
+        FLASH_F4_SR_WRPERR = (1 << 4)
+        self.assertEqual(FLASH_F4_SR_WRPERR, 0x00000010)
+
+    def test_f4_alignment_error_bit(self):
+        """Verify F4 PGAERR (Programming Alignment Error) bit position"""
+        FLASH_F4_SR_PGAERR = (1 << 5)
+        self.assertEqual(FLASH_F4_SR_PGAERR, 0x00000020)
+
+    def test_f4_parallelism_error_bit(self):
+        """Verify F4 PGPERR (Programming Parallelism Error) bit position"""
+        FLASH_F4_SR_PGPERR = (1 << 6)
+        self.assertEqual(FLASH_F4_SR_PGPERR, 0x00000040)
+
+    def test_f4_sequence_error_bit(self):
+        """Verify F4 PGSERR (Programming Sequence Error) bit position"""
+        FLASH_F4_SR_PGSERR = (1 << 7)
+        self.assertEqual(FLASH_F4_SR_PGSERR, 0x00000080)
+
+    def test_f4_busy_bit(self):
+        """Verify F4 BSY (Busy) bit position"""
+        FLASH_F4_SR_BSY = (1 << 16)
+        self.assertEqual(FLASH_F4_SR_BSY, 0x00010000)
 
 
 class TestDebugRegisters(unittest.TestCase):
@@ -230,6 +330,53 @@ class TestFlashSectorAddresses(unittest.TestCase):
         for i in range(len(sectors) - 1):
             self.assertLess(sectors[i], sectors[i + 1])
 
+    def test_sector_sizes(self):
+        """Verify F4 sector sizes"""
+        self.assertEqual(16 * 1024, 0x4000)
+        self.assertEqual(64 * 1024, 0x10000)
+        self.assertEqual(128 * 1024, 0x20000)
+
+    def test_sector_from_address_early_sectors(self):
+        """Calculate sector from address for 16KB sectors"""
+        FLASH_F4_SECTOR0_ADDR = 0x08000000
+        FLASH_F4_SECTOR_SIZE_0 = 16 * 1024
+
+        test_cases = [
+            (0x08000000, 0),
+            (0x08004000, 1),
+            (0x08008000, 2),
+            (0x0800C000, 3),
+        ]
+
+        for address, expected_sector in test_cases:
+            if address < FLASH_F4_SECTOR0_ADDR + 4 * FLASH_F4_SECTOR_SIZE_0:
+                sector = (address - FLASH_F4_SECTOR0_ADDR) // FLASH_F4_SECTOR_SIZE_0
+                self.assertEqual(sector, expected_sector)
+
+    def test_sector_from_address_sector4(self):
+        """Calculate sector from address for Sector 4 (64KB)"""
+        FLASH_F4_SECTOR4_ADDR = 0x08010000
+        FLASH_F4_SECTOR5_ADDR = 0x08020000
+
+        address = 0x08010000
+        self.assertGreaterEqual(address, FLASH_F4_SECTOR4_ADDR)
+        self.assertLess(address, FLASH_F4_SECTOR5_ADDR)
+
+    def test_sector_from_address_large_sectors(self):
+        """Calculate sector from address for 128KB sectors"""
+        FLASH_F4_SECTOR5_ADDR = 0x08020000
+        FLASH_F4_SECTOR_SIZE_5 = 128 * 1024
+
+        test_cases = [
+            (0x08020000, 5),
+            (0x08040000, 6),
+            (0x08060000, 7),
+        ]
+
+        for address, expected_sector in test_cases:
+            sector = 5 + (address - FLASH_F4_SECTOR5_ADDR) // FLASH_F4_SECTOR_SIZE_5
+            self.assertEqual(sector, expected_sector)
+
 
 class TestFlashProgrammingFlow(unittest.TestCase):
     """Test complete Flash programming workflow logic"""
@@ -272,6 +419,51 @@ class TestFlashProgrammingFlow(unittest.TestCase):
         page_size = 1024
         expected_address = 0x08000000 + (page_number * page_size)
         self.assertEqual(expected_address, 0x08001400)
+
+    def test_word_alignment_f4(self):
+        """Verify F4 requires word (32-bit) alignment"""
+        address = 0x08000000
+        valid_addresses = [address, address + 4, address + 8]
+        for addr in valid_addresses:
+            self.assertEqual(addr % 4, 0)
+
+
+class TestF4FlashProgrammingFlow(unittest.TestCase):
+    """Test STM32F4 Flash programming workflow"""
+
+    def setUp(self):
+        self.flash_base = 0x08000000
+
+    def test_f4_erase_before_write(self):
+        """Verify F4 Flash must be erased before writing"""
+        erased_data = 0xFFFFFFFF
+        new_data = 0x12345678
+        result = erased_data & new_data
+        self.assertEqual(result, new_data)
+
+    def test_f4_word_programming_alignment(self):
+        """Test F4 word (32-bit) programming data alignment"""
+        data = [0x12, 0x34, 0x56, 0x78]
+        word = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24)
+        self.assertEqual(word, 0x78563412)
+
+    def test_f4_partial_word_programming(self):
+        """Test F4 programming with partial final word"""
+        remaining = 2
+        data = [0xAB, 0xCD]
+        word = 0xFFFFFFFF
+        for i in range(remaining):
+            word &= ~(0xFF << (i * 8))
+            word |= data[i] << (i * 8)
+        self.assertEqual(word, 0xFFFFCDAB)
+
+    def test_f4_sector_erase_configuration(self):
+        """Test F4 sector erase register configuration"""
+        sector_num = 3
+        FLASH_F4_CR_SER = (1 << 1)
+        FLASH_F4_CR_SNB_SHIFT = 3
+        cr = FLASH_F4_CR_SER | (sector_num << FLASH_F4_CR_SNB_SHIFT)
+        self.assertEqual(cr, 0x0000001A)
 
 
 class TestSWDProtocol(unittest.TestCase):
@@ -364,11 +556,14 @@ def run_tests():
         TestFlashRegisterAddresses,
         TestFlashUnlockKeys,
         TestFlashControlBits,
+        TestF4FlashControlBits,
         TestFlashStatusBits,
+        TestF4FlashStatusBits,
         TestDebugRegisters,
         TestDAPProtocol,
         TestFlashSectorAddresses,
         TestFlashProgrammingFlow,
+        TestF4FlashProgrammingFlow,
         TestSWDProtocol,
         TestErrorHandling,
         TestMemoryRegions,

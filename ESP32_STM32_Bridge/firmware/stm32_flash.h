@@ -96,6 +96,37 @@ typedef struct {
 #define FLASH_F4_CR             (FLASH_F4_BASE + 0x10)
 #define FLASH_F4_OPTCR          (FLASH_F4_BASE + 0x14)
 
+// FLASH_F4_CR bits (RM0090 Section 3.9.5)
+#define FLASH_F4_CR_PG          (1 << 0)    // Programming
+#define FLASH_F4_CR_SER         (1 << 1)    // Sector erase
+#define FLASH_F4_CR_MER         (1 << 2)    // Mass erase (bank 1)
+#define FLASH_F4_CR_MER2        (1 << 15)   // Mass erase (bank 2, for 2MB devices)
+#define FLASH_F4_CR_SNB_SHIFT   3           // Sector number shift
+#define FLASH_F4_CR_SNB_MASK    (0xF << 3)  // Sector number mask
+#define FLASH_F4_CR_PSIZE_SHIFT 8           // Program size shift
+#define FLASH_F4_CR_PSIZE_MASK  (0x3 << 8)  // Program size mask
+#define FLASH_F4_CR_PSIZE_8     (0 << 8)    // 8-bit programming
+#define FLASH_F4_CR_PSIZE_16    (1 << 8)    // 16-bit programming
+#define FLASH_F4_CR_PSIZE_32    (2 << 8)    // 32-bit programming
+#define FLASH_F4_CR_PSIZE_64    (3 << 8)    // 64-bit programming (requires 2.7-3.6V)
+#define FLASH_F4_CR_STRT        (1 << 16)   // Start operation
+#define FLASH_F4_CR_EOPIE       (1 << 24)   // End of operation interrupt enable
+#define FLASH_F4_CR_ERRIE       (1 << 25)   // Error interrupt enable
+#define FLASH_F4_CR_LOCK        (1 << 31)   // Lock
+
+// FLASH_F4_SR bits (RM0090 Section 3.9.4)
+#define FLASH_F4_SR_EOP         (1 << 0)    // End of operation
+#define FLASH_F4_SR_SOP         (1 << 1)    // Operation error
+#define FLASH_F4_SR_WRPERR      (1 << 4)    // Write protection error
+#define FLASH_F4_SR_PGAERR      (1 << 5)    // Programming alignment error
+#define FLASH_F4_SR_PGPERR      (1 << 6)    // Programming parallelism error
+#define FLASH_F4_SR_PGSERR      (1 << 7)    // Programming sequence error
+#define FLASH_F4_SR_BSY         (1 << 16)   // Busy
+
+// Unlock keys (same as F1)
+#define FLASH_F4_KEY1           0x45670123
+#define FLASH_F4_KEY2           0xCDEF89AB
+
 // Sector addresses for F4 (1MB dual bank)
 #define FLASH_F4_SECTOR0_ADDR   0x08000000  // 16 KB
 #define FLASH_F4_SECTOR1_ADDR   0x08004000  // 16 KB
@@ -105,6 +136,16 @@ typedef struct {
 #define FLASH_F4_SECTOR5_ADDR   0x08020000  // 128 KB
 #define FLASH_F4_SECTOR6_ADDR   0x08040000  // 128 KB
 #define FLASH_F4_SECTOR7_ADDR   0x08060000  // 128 KB
+
+// Sector sizes (in bytes)
+#define FLASH_F4_SECTOR_SIZE_0  (16 * 1024)   // 16 KB
+#define FLASH_F4_SECTOR_SIZE_1  (16 * 1024)   // 16 KB
+#define FLASH_F4_SECTOR_SIZE_2  (16 * 1024)   // 16 KB
+#define FLASH_F4_SECTOR_SIZE_3  (16 * 1024)   // 16 KB
+#define FLASH_F4_SECTOR_SIZE_4  (64 * 1024)   // 64 KB
+#define FLASH_F4_SECTOR_SIZE_5  (128 * 1024)  // 128 KB
+#define FLASH_F4_SECTOR_SIZE_6  (128 * 1024)  // 128 KB
+#define FLASH_F4_SECTOR_SIZE_7  (128 * 1024)  // 128 KB
 
 // ============== Core Debug Registers ==============
 #define DEBUG_DHCSR             0xE000EDF0  // Debug Halting Control and Status
@@ -201,6 +242,7 @@ private:
   bool writeHalfWord_F1(uint32_t address, uint16_t data);
   bool waitForFlash_F1(uint32_t timeout_ms);
   
+  bool unlockFlash_F4(void);
   bool eraseAll_F4(void);
   bool eraseSector_F4(uint32_t sector);
   bool writeWord_F4(uint32_t address, uint32_t data);
@@ -537,6 +579,121 @@ bool STM32FlashProgrammer::writeHalfWord_F1(uint32_t address, uint16_t data) {
   return true;
 }
 
+// ============== STM32F4xx Specific Implementation ==============
+
+bool STM32FlashProgrammer::unlockFlash_F4(void) {
+  uint32_t cr;
+  
+  if (!readMem(FLASH_F4_CR, &cr)) return false;
+  
+  if (!(cr & FLASH_F4_CR_LOCK)) {
+    flash_unlocked = true;
+    return true;
+  }
+  
+  if (!writeMem(FLASH_F4_KEYR, FLASH_F4_KEY1)) return false;
+  if (!writeMem(FLASH_F4_KEYR, FLASH_F4_KEY2)) return false;
+  
+  if (!readMem(FLASH_F4_CR, &cr)) return false;
+  if (cr & FLASH_F4_CR_LOCK) return false;
+  
+  flash_unlocked = true;
+  return true;
+}
+
+bool STM32FlashProgrammer::waitForFlash_F4(uint32_t timeout_ms) {
+  uint32_t sr;
+  uint32_t timeout = millis() + timeout_ms;
+  
+  while (millis() < timeout) {
+    if (!readMem(FLASH_F4_SR, &sr)) return false;
+    
+    if (sr & (FLASH_F4_SR_SOP | FLASH_F4_SR_WRPERR | 
+              FLASH_F4_SR_PGAERR | FLASH_F4_SR_PGPERR | FLASH_F4_SR_PGSERR)) {
+      return false;
+    }
+    
+    if (!(sr & FLASH_F4_SR_BSY)) {
+      return true;
+    }
+    
+    delay(1);
+  }
+  
+  return false;
+}
+
+bool STM32FlashProgrammer::eraseSector_F4(uint32_t sector_num) {
+  if (!flash_unlocked && !unlockFlash_F4()) return false;
+  
+  if (sector_num > 11) return false;
+  
+  uint32_t cr;
+  
+  if (!writeMem(FLASH_F4_SR, 0x000000F3)) return false;
+  
+  if (!readMem(FLASH_F4_CR, &cr)) return false;
+  cr &= ~FLASH_F4_CR_SNB_MASK;
+  cr |= FLASH_F4_CR_SER | (sector_num << FLASH_F4_CR_SNB_SHIFT);
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  cr |= FLASH_F4_CR_STRT;
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  if (!waitForFlash_F4(8000)) return false;
+  
+  cr &= ~(FLASH_F4_CR_SER | FLASH_F4_CR_SNB_MASK);
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  return true;
+}
+
+bool STM32FlashProgrammer::eraseAll_F4(void) {
+  if (!flash_unlocked && !unlockFlash_F4()) return false;
+  
+  uint32_t cr;
+  
+  if (!writeMem(FLASH_F4_SR, 0x000000F3)) return false;
+  
+  if (!readMem(FLASH_F4_CR, &cr)) return false;
+  cr |= FLASH_F4_CR_MER;
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  cr |= FLASH_F4_CR_STRT;
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  if (!waitForFlash_F4(30000)) return false;
+  
+  cr &= ~FLASH_F4_CR_MER;
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  return true;
+}
+
+bool STM32FlashProgrammer::writeWord_F4(uint32_t address, uint32_t data) {
+  if (!flash_unlocked && !unlockFlash_F4()) return false;
+  
+  if (!waitForFlash_F4(100)) return false;
+  
+  uint32_t cr;
+  
+  if (!writeMem(FLASH_F4_SR, 0x000000F3)) return false;
+  
+  if (!readMem(FLASH_F4_CR, &cr)) return false;
+  cr &= ~FLASH_F4_CR_PSIZE_MASK;
+  cr |= FLASH_F4_CR_PG | FLASH_F4_CR_PSIZE_32;
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  if (!writeMem(address, data)) return false;
+  
+  if (!waitForFlash_F4(100)) return false;
+  
+  cr &= ~(FLASH_F4_CR_PG | FLASH_F4_CR_PSIZE_MASK);
+  if (!writeMem(FLASH_F4_CR, cr)) return false;
+  
+  return true;
+}
+
 // ============== Generic API Implementation ==============
 
 bool STM32FlashProgrammer::unlockFlash(void) {
@@ -549,9 +706,7 @@ bool STM32FlashProgrammer::unlockFlash(void) {
       return unlockFlash_F1();
       
     case STM32_FAMILY_F4:
-      // TODO: Implement F4 unlock
-      flash_unlocked = true;
-      return true;
+      return unlockFlash_F4();
       
     default:
       return false;
@@ -565,10 +720,21 @@ bool STM32FlashProgrammer::lockFlash(void) {
   
   uint32_t cr;
   
-  if (mcu_info.family == STM32_FAMILY_F1) {
-    if (!readMem(FLASH_F1_CR, &cr)) return false;
-    cr |= FLASH_F1_CR_LOCK;
-    if (!writeMem(FLASH_F1_CR, cr)) return false;
+  switch (mcu_info.family) {
+    case STM32_FAMILY_F1:
+      if (!readMem(FLASH_F1_CR, &cr)) return false;
+      cr |= FLASH_F1_CR_LOCK;
+      if (!writeMem(FLASH_F1_CR, cr)) return false;
+      break;
+      
+    case STM32_FAMILY_F4:
+      if (!readMem(FLASH_F4_CR, &cr)) return false;
+      cr |= FLASH_F4_CR_LOCK;
+      if (!writeMem(FLASH_F4_CR, cr)) return false;
+      break;
+      
+    default:
+      return false;
   }
   
   flash_unlocked = false;
@@ -580,12 +746,14 @@ bool STM32FlashProgrammer::eraseAll(void) {
     return false;
   }
   
-  // Halt core before erase
   if (!haltCore()) return false;
   
   switch (mcu_info.family) {
     case STM32_FAMILY_F1:
       return eraseAll_F1();
+      
+    case STM32_FAMILY_F4:
+      return eraseAll_F4();
       
     default:
       return false;
@@ -597,12 +765,23 @@ bool STM32FlashProgrammer::erasePage(uint32_t address) {
     return false;
   }
   
-  // Halt core before erase
   if (!haltCore()) return false;
   
   switch (mcu_info.family) {
     case STM32_FAMILY_F1:
       return erasePage_F1(address);
+      
+    case STM32_FAMILY_F4: {
+      uint32_t sector;
+      if (address < FLASH_F4_SECTOR4_ADDR) {
+        sector = (address - FLASH_F4_SECTOR0_ADDR) / FLASH_F4_SECTOR_SIZE_0;
+      } else if (address < FLASH_F4_SECTOR5_ADDR) {
+        sector = 4;
+      } else {
+        sector = 5 + (address - FLASH_F4_SECTOR5_ADDR) / FLASH_F4_SECTOR_SIZE_5;
+      }
+      return eraseSector_F4(sector);
+    }
       
     default:
       return false;
@@ -614,12 +793,9 @@ bool STM32FlashProgrammer::writeBuffer(uint32_t address, uint8_t* data, uint32_t
     return false;
   }
   
-  // Halt core before programming
   if (!haltCore()) return false;
   
-  if (!flash_unlocked) {
-    if (!unlockFlash()) return false;
-  }
+  if (!flash_unlocked && !unlockFlash()) return false;
   
   uint32_t offset = 0;
   
@@ -628,16 +804,31 @@ bool STM32FlashProgrammer::writeBuffer(uint32_t address, uint8_t* data, uint32_t
     
     switch (mcu_info.family) {
       case STM32_FAMILY_F1:
-        // F1 writes half-words (16-bit)
         if (offset + 1 < size) {
           uint16_t halfword = data[offset] | (data[offset + 1] << 8);
           success = writeHalfWord_F1(address + offset, halfword);
           offset += 2;
         } else {
-          // Last byte - pad with 0xFF
           uint16_t halfword = data[offset] | 0xFF00;
           success = writeHalfWord_F1(address + offset, halfword);
           offset += 1;
+        }
+        break;
+        
+      case STM32_FAMILY_F4:
+        if (offset + 3 < size) {
+          uint32_t word = data[offset] | (data[offset + 1] << 8) | 
+                          (data[offset + 2] << 16) | (data[offset + 3] << 24);
+          success = writeWord_F4(address + offset, word);
+          offset += 4;
+        } else {
+          uint32_t word = 0xFFFFFFFF;
+          for (int i = 0; i < 4 && (offset + i) < size; i++) {
+            word &= ~(0xFF << (i * 8));
+            word |= data[offset + i] << (i * 8);
+          }
+          success = writeWord_F4(address + offset, word);
+          offset += (size - offset);
         }
         break;
         
