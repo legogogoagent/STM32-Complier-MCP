@@ -17,6 +17,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiServer.h>
+#include "stm32_flash.h"
 
 // ============== 配置 ==============
 // WiFi模式: AP或STA
@@ -237,36 +238,77 @@ uint32_t swdReadIdCode() {
 }
 
 // ============== STM32 Flash操作 ==============
-// 这是简化的Flash编程，实际需要根据具体STM32型号实现
+STM32FlashProgrammer flashProgrammer;
+bool flashInitialized = false;
 
-bool stm32Halt() {
-  // 停止内核 (写入DHCSR)
-  // 这里简化处理，实际需要完整的SWD调试接口实现
+bool stm32InitFlash() {
+  if (!flashInitialized) {
+    if (!flashProgrammer.init()) {
+      Serial.println("Failed to initialize Flash programmer");
+      return false;
+    }
+    Serial.print("Detected MCU: ");
+    Serial.println(flashProgrammer.getMCUName());
+    flashInitialized = true;
+  }
   return true;
 }
 
+bool stm32Halt() {
+  if (!stm32InitFlash()) return false;
+  return flashProgrammer.haltCore();
+}
+
 bool stm32EraseFlash() {
-  // 擦除整个Flash
-  // 需要实现具体的Flash算法
+  if (!stm32InitFlash()) return false;
+  
+  Serial.println("Halting core...");
+  if (!flashProgrammer.haltCore()) {
+    Serial.println("Failed to halt core");
+    return false;
+  }
+  
+  Serial.println("Erasing Flash...");
+  if (!flashProgrammer.eraseAll()) {
+    Serial.println("Failed to erase Flash");
+    return false;
+  }
+  
+  Serial.println("Flash erased successfully");
   return true;
 }
 
 bool stm32WriteFlash(uint32_t address, uint8_t* data, uint32_t size) {
-  // 将数据写入Flash
-  // 需要实现具体的Flash编程算法
-  delay(10);  // 模拟编程时间
+  if (!stm32InitFlash()) return false;
+  
+  // Write buffer to Flash
+  if (!flashProgrammer.writeBuffer(address, data, size)) {
+    Serial.println("Failed to write Flash");
+    return false;
+  }
+  
+  // Verify if requested
+  if (!flashProgrammer.verifyBuffer(address, data, size)) {
+    Serial.println("Flash verification failed");
+    return false;
+  }
+  
   return true;
 }
 
 bool stm32Reset() {
-  // 复位STM32
+  // Use hardware reset if available
   if (NRST_PIN >= 0) {
     digitalWrite(NRST_PIN, LOW);
     delay(100);
     digitalWrite(NRST_PIN, HIGH);
     delay(100);
+    return true;
   }
-  return true;
+  
+  // Otherwise use software reset
+  if (!stm32InitFlash()) return false;
+  return flashProgrammer.resetSystem();
 }
 
 // ============== 协议处理 ==============
