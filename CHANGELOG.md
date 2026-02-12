@@ -8,9 +8,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- ESP32 Phase 2.5 - Complete SWD implementation and Flash algorithms
 - Phase 3 - Advanced debug features
 - Phase 4 - CI/CD integration and web interface
+- ESP32 hardware testing and validation
+
+## [0.8.0] - 2026-02-12
+
+### ESP32 Flash MCP Integration 🔌
+
+#### Added
+- **Full ESP32RemoteFlasher Implementation** (`mcp_flash/esp32_remote_flasher.py`)
+  - Complete async interface for WiFi-based STM32 flashing
+  - TCP socket communication with ESP32 Bridge
+  - IDCODE-based MCU auto-detection (F1/F4/F7/H7/L0/L1/L4/WB/WL series)
+  - Flash programming with progress callbacks
+  - Error handling (BridgeError, FlashError)
+  
+- **New MCP Tools for ESP32** (`mcp_flash/stm32_flash_server.py`)
+  - `flash_firmware_esp32()` - Remote flash via ESP32 Bridge
+  - `discover_esp32_devices()` - Auto-discovery on local network
+  - `check_esp32_bridge()` - Connection and MCU detection check
+  - HEX to BIN conversion for Intel HEX format support
+  - Automatic firmware format detection
+  
+- **Enhanced Flash Info** 
+  - Added ESP32 to supported programmers list
+  - Added WiFi to supported interfaces
+  - Remote support configuration in server info
+  
+#### Technical Details
+- **Communication Protocol**: TCP socket on port 4444
+- **SWD Interface**: GPIO18 (SWDIO) / GPIO19 (SWCLK)
+- **Default Network**: 192.168.4.1 (AP mode)
+- **Supported Formats**: .bin (native), .hex (converted)
+- **Timeout**: Configurable (default 300s for large firmware)
+
+#### Usage Example
+```python
+# Discover ESP32 devices
+result = await flash_server.discover_esp32_devices()
+# Returns: [{"ip": "192.168.4.1", "port": 4444, "version": "v1.0.0"}]
+
+# Check ESP32 connection
+check = await flash_server.check_esp32_bridge("192.168.4.1")
+# Returns: {connected: true, mcu_connected: true, mcu_idcode: "0x2BA01477"}
+
+# Flash firmware remotely
+result = await flash_server.flash_firmware_esp32(
+    workspace="/path/to/project",
+    esp32_host="192.168.4.1",
+    esp32_port=4444
+)
+```
+
+#### Architecture
+```
+Flash MCP Server
+      │
+      ├── LocalOpenOCDFlasher (ST-Link/J-Link)
+      │
+      └── ESP32RemoteFlasher (NEW)
+            ├── ESP32BridgeClient (TCP socket)
+            │       └── Connect to 192.168.4.1:4444
+            └── SWD Commands
+                    ├── reset → MCU IDCODE
+                    ├── upload → Firmware binary
+                    └── flash → Program STM32
+```
+
+#### Files Modified
+- `mcp_flash/esp32_remote_flasher.py` - Full implementation (290 lines)
+- `mcp_flash/stm32_flash_server.py` - Added 3 new tools (+200 lines)
+- `mcp_flash/flasher_router.py` - ESP32 route support
+
+#### Testing
+- Python import validation ✅
+- MCP tool registration ✅
+- Protocol integration ✅
+- Hardware testing: Pending (requires physical ESP32 + STM32)
 
 ## [0.7.0] - 2026-02-12
 

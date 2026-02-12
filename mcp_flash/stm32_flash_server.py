@@ -615,12 +615,12 @@ def get_flash_info() -> Dict[str, Any]:
     
     return {
         "name": "stm32-flash-server",
-        "version": "0.6.0",
+        "version": "0.7.0",
         "default_programmer": DEFAULT_PROGRAMMER,
         "default_interface": DEFAULT_INTERFACE,
         "default_timeout": DEFAULT_TIMEOUT,
-        "supported_programmers": ["stlink", "openocd"],
-        "supported_interfaces": ["swd", "jtag"],
+        "supported_programmers": ["stlink", "openocd", "esp32"],
+        "supported_interfaces": ["swd", "jtag", "wifi"],
         "supported_formats": [".hex", ".bin", ".elf"],
         "multi_target": {
             "enabled": True,
@@ -633,6 +633,15 @@ def get_flash_info() -> Dict[str, Any]:
             "enabled": True,
             "default_image": DEFAULT_DOCKER_IMAGE,
             "usb_passthrough": True,
+        },
+        "remote_support": {
+            "enabled": True,
+            "esp32_bridge": {
+                "enabled": True,
+                "default_host": "192.168.4.1",
+                "default_port": 4444,
+                "description": "通过ESP32 WiFi桥远程烧录STM32"
+            }
         }
     }
 
@@ -728,6 +737,264 @@ def detect_mcu(
 
 
 @mcp.tool()
+def flash_firmware_esp32(
+    workspace: str,
+    hex_file: str = "",
+    esp32_host: str = "192.168.4.1",
+    esp32_port: int = 4444,
+    verify: bool = True,
+    timeout_sec: int = 300,
+) -> Dict[str, Any]:
+    """使用ESP32远程桥烧录固件到STM32 MCU
+    
+    通过WiFi连接的ESP32 Bridge远程烧录STM32固件。
+    ESP32通过SWD引脚(GPIO18=SWDIO, GPIO19=SWCLK)连接STM32。
+    
+    Args:
+        workspace: 工程根目录绝对路径
+        hex_file: hex/bin文件路径（相对于workspace/out/，或绝对路径）
+        esp32_host: ESP32 IP地址 (默认192.168.4.1 AP模式)
+        esp32_port: ESP32 TCP端口 (默认4444)
+        verify: 是否验证烧录 (ESP32自动验证)
+        timeout_sec: 烧录超时秒数 (默认300秒)
+        
+    Returns:
+        {
+            "ok": bool,
+            "exit_code": int,
+            "programmer": "esp32",
+            "esp32_host": str,
+            "esp32_port": int,
+            "hex_file": str,
+            "device_id": str,
+            "stdout": str,
+            "stderr": str,
+            "duration_sec": float,
+        }
+    """
+    import time
+    from pathlib import Path
+    
+    start_time = time.time()
+    
+    try:
+        # 检查ESP32客户端可用性
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'ESP32_STM32_Bridge' / 'scripts'))
+            from esp32_bridge_client import ESP32BridgeClient, BridgeError, FlashError
+        except ImportError as e:
+            return {
+                "ok": False,
+                "error": f"ESP32 Bridge客户端不可用: {str(e)}。请确保ESP32_STM32_Bridge/scripts/esp32_bridge_client.py存在",
+                "duration_sec": 0,
+            }
+        
+        # 参数验证
+        if timeout_sec < 10 or timeout_sec > 600:
+            return {"ok": False, "error": f"timeout_sec必须在10-600之间"}
+        
+        workspace_path = Path(workspace).resolve()
+        if not workspace_path.exists():
+            return {"ok": False, "error": f"工作目录不存在: {workspace}"}
+        
+        # 确定固件文件路径
+        firmware_path = None
+        firmware_format = ""
+        
+        if not hex_file:
+            # 自动查找out目录中的固件
+            out_dir = workspace_path / "out" / "artifacts"
+            if out_dir.exists():
+                # 优先找.bin文件
+                bin_files = list(out_dir.glob("*.bin"))
+                if bin_files:
+                    firmware_path = bin_files[0]
+                    firmware_format = "bin"
+                else:
+                    hex_files = list(out_dir.glob("*.hex"))
+                    if hex_files:
+                        firmware_path = hex_files[0]
+                        firmware_format = "hex"
+            
+            if not firmware_path:
+                return {"ok": False, "error": "未找到固件文件(.bin或.hex)，请指定hex_file参数"}
+        elif Path(hex_file).is_absolute():
+            firmware_path = Path(hex_file)
+        else:
+            # 尝试相对路径
+            out_dir = workspace_path / "out" / "artifacts" / hex_file
+            if out_dir.exists():
+                firmware_path = out_dir
+            else:
+                firmware_path = workspace_path / hex_file
+        
+        if not firmware_path.exists():
+            return {"ok": False, "error": f"固件文件不存在: {firmware_path}"}
+        
+        # 确定格式
+        if not firmware_format:
+            if firmware_path.suffix.lower() == ".bin":
+                firmware_format = "bin"
+            elif firmware_path.suffix.lower() == ".hex":
+                firmware_format = "hex"
+            else:
+                return {"ok": False, "error": f"不支持的固件格式: {firmware_path.suffix}"}
+        
+        # 连接到ESP32
+        stdout_lines = []
+        stderr_lines = []
+        
+        stdout_lines.append(f"连接到ESP32 Bridge {esp32_host}:{esp32_port}...")
+        
+        try:
+            client = ESP32BridgeClient(esp32_host, esp32_port, timeout=30.0)
+            client.connect()
+            
+            version = client.get_version()
+            stdout_lines.append(f"连接成功: {version}")
+            
+            # 读取IDCODE
+            idcode = client.read_idcode()
+            device_id = f"0x{idcode:08X}"
+            stdout_lines.append(f"检测到MCU: {device_id}")
+            
+        except BridgeError as e:
+            stderr_lines.append(f"连接失败: {str(e)}")
+            return {
+                "ok": False,
+                "exit_code": 1,
+                "programmer": "esp32",
+                "esp32_host": esp32_host,
+                "esp32_port": esp32_port,
+                "hex_file": str(firmware_path),
+                "device_id": "",
+                "stdout": "\n".join(stdout_lines),
+                "stderr": "\n".join(stderr_lines),
+                "duration_sec": time.time() - start_time,
+            }
+        
+        # 读取固件数据
+        stdout_lines.append(f"读取固件: {firmware_path.name}")
+        
+        with open(firmware_path, "rb") as f:
+            if firmware_format == "hex":
+                # 如果是hex文件，需要先转换为bin
+                import struct
+                hex_content = f.read().decode('utf-8')
+                binary_data = _convert_hex_to_bin(hex_content)
+                stdout_lines.append(f"HEX转BIN: {len(binary_data)} bytes")
+            else:
+                binary_data = f.read()
+        
+        firmware_size = len(binary_data)
+        stdout_lines.append(f"固件大小: {firmware_size} bytes")
+        
+        # 烧录固件
+        stdout_lines.append("开始烧录...")
+        
+        try:
+            client.flash_firmware(binary_data, show_progress=False)
+            stdout_lines.append("烧录完成!")
+        except FlashError as e:
+            stderr_lines.append(f"烧录失败: {str(e)}")
+            client.close()
+            return {
+                "ok": False,
+                "exit_code": 2,
+                "programmer": "esp32",
+                "esp32_host": esp32_host,
+                "esp32_port": esp32_port,
+                "hex_file": str(firmware_path),
+                "device_id": device_id,
+                "stdout": "\n".join(stdout_lines),
+                "stderr": "\n".join(stderr_lines),
+                "duration_sec": time.time() - start_time,
+            }
+        
+        # 关闭连接
+        client.close()
+        
+        duration = time.time() - start_time
+        stdout_lines.append(f"总耗时: {duration:.2f}秒")
+        
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "programmer": "esp32",
+            "esp32_host": esp32_host,
+            "esp32_port": esp32_port,
+            "hex_file": str(firmware_path),
+            "device_id": device_id,
+            "stdout": "\n".join(stdout_lines),
+            "stderr": "\n".join(stderr_lines),
+            "duration_sec": duration,
+        }
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        return {
+            "ok": False,
+            "exit_code": -1,
+            "error": f"ESP32烧录异常: {str(e)}",
+            "duration_sec": duration,
+        }
+
+
+def _convert_hex_to_bin(hex_content: str) -> bytes:
+    """将Intel HEX格式转换为二进制数据
+    
+    Args:
+        hex_content: HEX文件内容
+        
+    Returns:
+        二进制数据
+    """
+    import struct
+    
+    binary_data = bytearray()
+    base_address = 0
+    
+    for line in hex_content.strip().split('\n'):
+        line = line.strip()
+        if not line.startswith(':'):
+            continue
+        
+        # 解析HEX记录
+        # :LLAAAATTDD...CC
+        # LL = 数据长度
+        # AAAA = 地址
+        # TT = 记录类型
+        # DD = 数据
+        # CC = 校验和
+        
+        data_len = int(line[1:3], 16)
+        address = int(line[3:7], 16)
+        record_type = int(line[7:9], 16)
+        
+        if record_type == 0x00:  # 数据记录
+            # 扩展地址处理
+            full_address = base_address + address
+            
+            # 确保binary_data足够长
+            while len(binary_data) < full_address + data_len:
+                binary_data.append(0xFF)
+            
+            # 写入数据
+            for i in range(data_len):
+                byte_val = int(line[9 + i*2:11 + i*2], 16)
+                binary_data[full_address + i] = byte_val
+                
+        elif record_type == 0x04:  # 扩展线性地址记录
+            base_address = int(line[9:13], 16) << 16
+            
+        elif record_type == 0x01:  # 结束记录
+            break
+    
+    return bytes(binary_data)
+
+
+@mcp.tool()
 def list_supported_mcus_tool() -> Dict[str, Any]:
     """列出所有支持的MCU设备
     
@@ -748,6 +1015,168 @@ def list_supported_mcus_tool() -> Dict[str, Any]:
         "families": families,
         "mcus": mcus,
     }
+
+
+@mcp.tool()
+def discover_esp32_devices(
+    subnet: str = "192.168.4",
+    timeout_sec: float = 5.0,
+) -> Dict[str, Any]:
+    """发现本地网络中的ESP32 Bridge设备
+    
+    扫描指定网段发现ESP32 STM32 Bridge设备。
+    ESP32默认在AP模式下创建热点 192.168.4.1。
+    
+    Args:
+        subnet: 要扫描的网段 (默认192.168.4)
+        timeout_sec: 每个IP的超时时间
+        
+    Returns:
+        {
+            "ok": bool,
+            "devices": list[{"ip": str, "port": int, "version": str}],
+            "scan_range": str,
+            "duration_sec": float,
+        }
+    """
+    import time
+    from pathlib import Path
+    
+    start_time = time.time()
+    
+    try:
+        # 尝试导入ESP32 Bridge客户端
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'ESP32_STM32_Bridge' / 'scripts'))
+            from esp32_bridge_client import ESP32BridgeDiscovery
+        except ImportError as e:
+            return {
+                "ok": False,
+                "error": f"ESP32 Bridge客户端不可用: {str(e)}",
+                "devices": [],
+                "duration_sec": time.time() - start_time,
+            }
+        
+        # 执行发现
+        devices = ESP32BridgeDiscovery.discover(timeout=timeout_sec)
+        
+        # 格式化结果
+        formatted_devices = [
+            {
+                "ip": ip,
+                "port": port,
+                "version": version
+            }
+            for ip, port, version in devices
+        ]
+        
+        return {
+            "ok": True,
+            "devices": formatted_devices,
+            "scan_range": f"{subnet}.2-254",
+            "device_count": len(formatted_devices),
+            "duration_sec": time.time() - start_time,
+        }
+        
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"发现过程异常: {str(e)}",
+            "devices": [],
+            "duration_sec": time.time() - start_time,
+        }
+
+
+@mcp.tool()
+def check_esp32_bridge(
+    host: str = "192.168.4.1",
+    port: int = 4444,
+) -> Dict[str, Any]:
+    """检查ESP32 Bridge连接状态
+    
+    测试与ESP32 Bridge的连通性并获取基本信息。
+    
+    Args:
+        host: ESP32 IP地址
+        port: ESP32 TCP端口
+        
+    Returns:
+        {
+            "ok": bool,
+            "connected": bool,
+            "host": str,
+            "port": int,
+            "bridge_version": str,
+            "mcu_connected": bool,
+            "mcu_idcode": str,
+            "latency_ms": float,
+        }
+    """
+    import time
+    from pathlib import Path
+    
+    start_time = time.time()
+    
+    try:
+        # 尝试导入ESP32 Bridge客户端
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'ESP32_STM32_Bridge' / 'scripts'))
+            from esp32_bridge_client import ESP32BridgeClient, BridgeError
+        except ImportError as e:
+            return {
+                "ok": False,
+                "connected": False,
+                "error": f"ESP32 Bridge客户端不可用: {str(e)}",
+            }
+        
+        result = {
+            "ok": True,
+            "connected": False,
+            "host": host,
+            "port": port,
+            "bridge_version": "",
+            "mcu_connected": False,
+            "mcu_idcode": "",
+            "latency_ms": 0.0,
+        }
+        
+        # 尝试连接
+        try:
+            client = ESP32BridgeClient(host, port, timeout=10.0)
+            client.connect()
+            result["connected"] = True
+            
+            # 获取版本
+            result["bridge_version"] = client.get_version()
+            
+            # 尝试读取MCU IDCODE
+            try:
+                idcode = client.read_idcode()
+                result["mcu_connected"] = True
+                result["mcu_idcode"] = f"0x{idcode:08X}"
+            except BridgeError:
+                result["mcu_connected"] = False
+            
+            # 关闭连接
+            client.close()
+            
+        except BridgeError as e:
+            result["connected"] = False
+            result["error"] = str(e)
+        
+        result["latency_ms"] = (time.time() - start_time) * 1000
+        return result
+        
+    except Exception as e:
+        return {
+            "ok": False,
+            "connected": False,
+            "host": host,
+            "port": port,
+            "error": f"检查异常: {str(e)}",
+        }
 
 
 @mcp.tool()
