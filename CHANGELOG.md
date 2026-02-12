@@ -8,10 +8,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Docker编译环境搭建
-- MCP Build Server核心实现
-- GCC/LD错误解析器
-- 完整闭环测试
+- ESP32 Phase 2.5 - Complete SWD implementation and Flash algorithms
+- Phase 3 - Advanced debug features
+- Phase 4 - CI/CD integration and web interface
+
+## [0.7.0] - 2026-02-12
+
+### ESP32 Remote Flasher Project 🆕
+
+#### Added
+- **ESP32 Firmware** (`ESP32_STM32_Bridge/firmware/esp32_stm32_bridge.ino`)
+  - SWD bit-banging implementation over GPIO
+  - WiFi AP/STA mode support
+  - TCP command protocol (reset, idcode, upload, flash)
+  - Serial bridge for STM32 UART forwarding
+  - Firmware buffer up to 256KB
+  
+- **Python Client Library** (`ESP32_STM32_Bridge/scripts/esp32_bridge_client.py`)
+  - `ESP32BridgeClient` - Main client class
+  - `ESP32BridgeDiscovery` - Auto-discovery on local network
+  - `ESP32RemoteFlasher` - MCP-compatible flasher interface
+  - Full documentation and examples
+  
+- **Hardware Documentation** (`ESP32_STM32_Bridge/docs/HARDWARE.md`)
+  - Pin connection diagrams
+  - Power supply options
+  - Troubleshooting guide
+  - Multi-target extension plans
+  
+- **Project README** (`ESP32_STM32_Bridge/README.md`)
+  - Project overview and features
+  - Quick start guide
+  - Protocol documentation
+  - MCP integration examples
+
+#### Architecture
+```
+PC/MCP Server ──WiFi──▶ ESP32 ──SWD──▶ STM32
+                          │
+                          └──UART──▶ Serial Bridge
+```
+
+### OpenCode Skill v1.0 - Auto-Installation 🎯
+
+#### Added
+- **Auto-Detection System** (`SKILL.md` frontmatter)
+  - Pattern matching for GitHub URL requests
+  - Trigger phrases: "安装skill", "配置STM32环境"
+  - Automatic skill loading without manual installation
+  
+- **Installation Script** (`scripts/install-from-github.sh`)
+  - Clone from GitHub
+  - Copy skill to project `.opencode/skills/`
+  - Copy MCP code to project root
+  - Auto-generate `.opencode/mcp.json`
+  - Python import verification
+  
+- **Installation Guide** (`SKILL_INSTALL.md`)
+  - Agent auto-install instructions
+  - Manual installation fallback
+  - Troubleshooting section
+  
+- **Prompt Examples** (`PROMPT_EXAMPLES.md`)
+  - User prompt patterns
+  - Agent response examples
+  - Best practices
+
+#### Files Created
+- `ESP32_STM32_Bridge/firmware/esp32_stm32_bridge.ino` (189 lines)
+- `ESP32_STM32_Bridge/scripts/esp32_bridge_client.py` (340 lines)
+- `ESP32_STM32_Bridge/docs/HARDWARE.md` (215 lines)
+- `ESP32_STM32_Bridge/README.md` (156 lines)
+
+#### Installation Test ✅
+- Tested auto-installation in isolated environment
+- All components installed correctly
+- MCP configuration auto-generated
+- Python imports verified
+
+## [0.6.0] - 2026-02-11
+
+### OpenCode Skill Creation 🎨
+
+#### Added
+- **Complete Skill Structure** (`.opencode/skills/stm32-dev-workflow/`)
+  - `SKILL.md` - Full workflow documentation
+  - `QUICK_REFERENCE.md` - API quick reference
+  - `scripts/agent_example.py` - Agent usage examples
+  - `references/mcp-config.json` - Configuration template
+
+#### Integration
+- MCP server configuration templates
+- Agent workflow examples
+- Error handling patterns
+
+## [0.5.0] - 2026-02-11
+
+### Multi-Target MCU Support 🔧
+
+#### Added
+- **MCU Database** (`mcp_flash/mcu_database.py`)
+  - 40+ MCU definitions (F1/F4/F7/H7 series)
+  - IDCODE to MCU mapping
+  - Flash algorithm metadata
+  - Memory layout specifications
+  
+- **Auto-Detection** (`mcp_flash/stm32_flash_server_v2.py`)
+  - OpenOCD IDCODE reading
+  - Automatic MCU matching
+  - Flash algorithm selection
+  
+- **Unified Architecture**
+  - `BaseFlasher` abstract interface
+  - `LocalOpenOCDFlasher` implementation
+  - `FlasherRouter` for smart routing
+
+#### Supported MCUs
+- **F1 Series**: F103, F105, F107 (Cortex-M3)
+- **F4 Series**: F401, F407, F411, F429, F446 (Cortex-M4)
+- **F7 Series**: F722, F767 (Cortex-M7)
+- **H7 Series**: H743, H747 (Cortex-M7, dual-core)
+
+## [0.4.0] - 2026-02-10
+
+### Flash MCP v2 & Docker Support 🐳
+
+#### Added
+- **Flash MCP Server v2** (`mcp_flash/stm32_flash_server_v2.py`)
+  - Multi-target support architecture
+  - Improved error handling
+  - Health check endpoint
+  
+- **Docker Flash Environment** (`docker/flash.Dockerfile`)
+  - OpenOCD installation
+  - USB device support
+  - Multi-platform compatibility
+  
+- **Version Switching** (`mcp_flash/version_switch.py`)
+  - Runtime version selection
+  - Migration utilities
+
+## [0.3.0] - 2026-02-09
+
+### Dual-MCP Architecture 🔌
+
+#### Added
+- **Flash MCP Server** (`mcp_flash/stm32_flash_server.py`)
+  - `flash_firmware()` tool
+  - ST-Link/OpenOCD/J-Link support
+  - Flash verification
+  - Reset control
+  
+- **Flash Scripts** (`tools/flash.sh`)
+  - Containerized flashing
+  - Device permission handling
+  
+- **Shared Output Directory** (`out/`)
+  - Build MCP writes artifacts
+  - Flash MCP reads for programming
+
+#### Architecture
+```
+┌─────────────────────────────────────┐
+│           Agent (AI Assistant)      │
+└──────────┬─────────────────┬────────┘
+           │                 │
+    ┌──────▼──────┐   ┌─────▼────────┐
+    │ Build MCP    │   │ Flash MCP    │
+    │ (编译)       │   │ (烧录)       │
+    └──────┬──────┘   └──────┬───────┘
+           │                 │
+           └────────┬────────┘
+                    ▼
+              ┌──────────┐
+              │ STM32 MCU│
+              └──────────┘
+```
 
 ## [0.2.0] - 2026-02-11
 
