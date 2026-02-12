@@ -117,6 +117,8 @@ STM32_Complier_MCP/
 - **Build System**: Make
 
 #### Next Steps
+
+##### Phase 1-3: Build MCP (编译)
 - [x] Phase 1: Docker编译环境搭建 ✅
   - [x] 创建docker/Dockerfile
   - [x] 创建tools/build.sh
@@ -134,17 +136,36 @@ STM32_Complier_MCP/
   - [ ] 解析GCC/LD错误
   - [ ] 完整闭环测试
 
+##### Phase 4-6: Flash MCP (烧录) 🆕
+- [ ] Phase 4: Flash MCP Server
+  - [ ] 创建mcp_flash/stm32_flash_server.py
+  - [ ] 实现flash_firmware工具
+  - [ ] 支持ST-Link/OpenOCD/J-Link
+  
+- [ ] Phase 5: 烧录环境搭建
+  - [ ] 创建docker/flash.Dockerfile
+  - [ ] USB设备权限配置
+  - [ ] 烧录脚本工具
+  
+- [ ] Phase 6: 双MCP集成
+  - [ ] Build → Flash 产物传递机制
+  - [ ] Agent协调两个MCP
+  - [ ] 完整闭环测试（修改→编译→烧录→运行）
+
 ---
 
 ## Release Schedule
 
-| Version | Target Date | Milestone |
-|---------|-------------|-----------|
-| 0.1.0 | 2026-02-11 | ✅ 项目初始化完成 |
-| 0.2.0 | 2026-02-11 | ✅ Docker编译环境 |
-| 0.3.0 | TBD | MCP Server核心 |
-| 0.4.0 | TBD | GCC错误解析器 |
-| 1.0.0 | TBD | 完整闭环 + 验收通过 |
+| Version | Target Date | Milestone | Scope |
+|---------|-------------|-----------|-------|
+| 0.1.0 | 2026-02-11 | ✅ 项目初始化完成 | 基础架构 |
+| 0.2.0 | 2026-02-11 | ✅ Docker编译环境 | Build MCP |
+| 0.3.0 | TBD | MCP Server核心 | Build MCP |
+| 0.4.0 | TBD | GCC错误解析器 | Build MCP |
+| **0.5.0** | **TBD** | **🆕 Flash MCP Server** | **Flash MCP** |
+| **0.6.0** | **TBD** | **🆕 烧录环境搭建** | **Flash MCP** |
+| **0.7.0** | **TBD** | **🆕 双MCP集成** | **集成测试** |
+| 1.0.0 | TBD | 完整闭环 + 验收通过 | 生产就绪 |
 
 ---
 
