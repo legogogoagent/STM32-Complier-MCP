@@ -15,6 +15,22 @@ from datetime import datetime
 from fastmcp import FastMCP
 from pydantic import Field
 
+# 导入GCC错误解析器
+try:
+    from .gcc_parse import (
+        parse_build_log,
+        errors_to_dict,
+        get_error_summary,
+        format_error_for_display,
+    )
+except ImportError:
+    from gcc_parse import (
+        parse_build_log,
+        errors_to_dict,
+        get_error_summary,
+        format_error_for_display,
+    )
+
 # 初始化MCP服务器
 mcp = FastMCP("stm32-build-server")
 
@@ -214,17 +230,24 @@ def build_firmware(
             else:
                 log_tail = log_content
         
-        # 解析错误（简化版，完整版在Phase 3实现）
+        # 解析错误（使用gcc_parse模块）
         errors = []
-        if result.returncode != 0:
-            for line in result.stderr.splitlines():
-                if "error:" in line.lower():
-                    errors.append({
-                        "type": "compiler",
-                        "severity": "error",
-                        "message": line,
-                        "raw": line
-                    })
+        error_summary = None
+        
+        # 优先从build.log解析（更完整的日志）
+        log_content = ""
+        if build_log.exists():
+            log_content = build_log.read_text()
+        
+        # 如果build.log为空或没有错误，尝试从stderr解析
+        if not log_content or result.returncode != 0:
+            log_content += "\n" + result.stderr
+        
+        # 使用gcc_parse解析错误
+        if log_content.strip():
+            parsed_errors = parse_build_log(log_content, str(workspace_path))
+            errors = errors_to_dict(parsed_errors)
+            error_summary = get_error_summary(parsed_errors)
         
         return {
             "ok": result.returncode == 0,
@@ -233,6 +256,7 @@ def build_firmware(
             "outdir": str(outdir),
             "artifacts": artifacts,
             "errors": errors,
+            "error_summary": error_summary,
             "log_tail": log_tail[-max_log_tail_kb*1024:],
             "docker_tail": result.stderr[-max_log_tail_kb*512:],
             "duration_sec": duration,
@@ -315,12 +339,62 @@ def get_build_info() -> Dict[str, Any]:
     """
     return {
         "name": "stm32-build-server",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "default_docker_image": DEFAULT_DOCKER_IMAGE,
         "default_timeout": DEFAULT_TIMEOUT,
         "allowed_roots": ALLOWED_ROOTS,
         "supported_mcu_families": ["STM32F1", "STM32F4", "STM32L4"],
     }
+
+
+@mcp.tool()
+def parse_gcc_errors(
+    log_content: str,
+    workspace: str = "",
+) -> Dict[str, Any]:
+    """解析GCC编译错误日志
+    
+    将原始编译日志解析为结构化的错误信息，支持编译错误、链接错误、
+    make错误和工具链错误。
+    
+    Args:
+        log_content: 编译日志内容
+        workspace: 工作目录路径（用于路径归一化）
+        
+    Returns:
+        {
+            "errors": List[dict],      # 解析后的错误列表
+            "summary": dict,           # 错误统计摘要
+            "formatted": List[str],    # 格式化后的错误显示
+            "total": int,              # 错误总数
+        }
+    """
+    try:
+        # 解析错误
+        parsed_errors = parse_build_log(log_content, workspace)
+        
+        # 转换为字典列表
+        errors = errors_to_dict(parsed_errors)
+        
+        # 获取摘要
+        summary = get_error_summary(parsed_errors)
+        
+        # 格式化显示
+        formatted = [format_error_for_display(e) for e in parsed_errors]
+        
+        return {
+            "ok": True,
+            "errors": errors,
+            "summary": summary,
+            "formatted": formatted,
+            "total": len(errors),
+        }
+        
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"解析失败: {str(e)}",
+        }
 
 
 def main():
