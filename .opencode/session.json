@@ -162,6 +162,35 @@
       "data": 544,
       "bss": 5912,
       "total": 58364
+    },
+    "flash_test": {
+      "status": "passed",
+      "tested_at": "2026-02-12T02:24:00Z",
+      "programmer": "ST-Link/V2",
+      "tool": "OpenOCD 0.11.0",
+      "mcu_detected": {
+        "device_id": "0x20036410",
+        "flash_size": "64KB",
+        "voltage": "6.42V"
+      },
+      "hex_file": "Elder_Lifter_STM32.hex",
+      "hex_size": "145KB",
+      "operations": ["program", "verify", "reset"],
+      "result": "Verified OK"
+    }
+  },
+  "hardware": {
+    "programmer": {
+      "type": "ST-Link/V2",
+      "id": "0483:3748",
+      "firmware": "V2J45S7",
+      "detected": true
+    },
+    "mcu": {
+      "connected": true,
+      "family": "STM32F1xx",
+      "device_id": "0x20036410",
+      "flash_size": "64KB"
     }
   }
 }
