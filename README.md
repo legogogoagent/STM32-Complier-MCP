@@ -1,48 +1,28 @@
-# STM32 MCP Build Server
+# STM32 MCP
 
-> ⚠️ **架构升级通知**: 当前版本 (v1.0) 采用"复制代码到项目"的安装方式。
-> v2.0 将重构为 **`uvx` + Docker** 标准架构，实现零安装、零污染。
-> 详见 [ARCHITECTURE.md](ARCHITECTURE.md) 和 [Issue #1](https://github.com/legogogoagent/STM32-Complier-MCP/issues/1)。
+[![PyPI](https://img.shields.io/pypi/v/stm32-mcp)](https://pypi.org/project/stm32-mcp/)
+[![Docker](https://img.shields.io/docker/v/legogogoagent/stm32-toolchain?label=docker)](https://hub.docker.com/r/legogogoagent/stm32-toolchain)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-AI自动编译修复系统 - 基于 MCP (Model Context Protocol) 的 STM32 开发平台
+> AI-powered STM32 development via Model Context Protocol (MCP)
 
-## 🎯 项目目标
+Compile and flash STM32 firmware through AI agents with zero local toolchain installation.
 
-构建 MCP Server，实现完整的嵌入式开发闭环：
+## ✨ Features
 
-```
-Agent修改代码 → Build MCP编译 → 解析错误自动修复 → 编译成功 → Flash MCP烧录 → MCU运行
-```
+- 🚀 **Zero Installation** - No ARM toolchain, no dependencies, just Docker
+- 🤖 **AI-Native** - Designed for MCP-compatible agents (OpenCode, Claude, etc.)
+- 🔧 **Auto-Fix** - Automatic Makefile repair (Windows paths, GCC options)
+- 📦 **Pre-built Images** - Ready-to-use Docker images with GCC 12.3
+- 🎯 **One Command** - `uvx stm32-mcp` and you're ready
 
-## 🏗️ 架构版本
+## 🚀 Quick Start
 
-### v1.0 (当前版本)
+### 1. Configure MCP Server
 
-安装方式：复制MCP代码到用户项目 + `pip install`
-
-```json
-{
-  "mcpServers": {
-    "stm32-build": {
-      "command": "python3",
-      "args": ["-m", "mcp_build.stm32_build_server"]
-    }
-  }
-}
-```
-
-**已知问题** (详见 [Issue #1](https://github.com/legogogoagent/STM32-Complier-MCP/issues/1)):
-- 需要手动安装ARM工具链
-- Makefile兼容性问题 (Windows路径、GCC版本)
-- 安装步骤繁琐 (6步, >20分钟首次安装)
-- 往用户项目复制代码 (非行业标准)
-
-### v2.0 (已发布 ✅)
-
-安装方式：`uvx` + Docker，**零安装、零污染**
+Create `.opencode/opencode.json` in your STM32 project:
 
 ```json
-// .opencode/opencode.json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -55,150 +35,187 @@ Agent修改代码 → Build MCP编译 → 解析错误自动修复 → 编译成
 }
 ```
 
-**⚠️ 注意**: OpenCode 使用 `.opencode/opencode.json`，不是 `.opencode/mcp.json`！配置后需重启 Agent。
+**Important**: Restart your agent after configuration!
 
-**改进**:
-- ✅ 不复制代码到用户项目
-- ✅ 不污染用户Python环境
-- ✅ 预构建Docker镜像 (`legogogoagent/stm32-toolchain:12.3`)
-- ✅ Makefile自动修复 (容器内临时副本)
-- ✅ 符合MCP行业标准 (Playwright MCP、SQLite MCP同款模式)
+### 2. Use via Agent
 
-详见 [ARCHITECTURE.md](ARCHITECTURE.md)
+```
+User: Compile this STM32 project
 
----
-
-## 🚀 快速开始 (v2.0)
-
-### 1. 配置 MCP Server
-
-创建 `.opencode/opencode.json`：
-
-```bash
-mkdir -p .opencode
-cat > .opencode/opencode.json << 'EOF'
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "stm32": {
-      "type": "local",
-      "command": ["uvx", "stm32-mcp"],
-      "enabled": true
-    }
-  }
-}
-EOF
+Agent:
+  ✅ Found STM32 project
+  🐳 Pulling Docker image (first time only)
+  🔨 Building firmware...
+  ✓ Compilation successful!
+     - firmware.hex (145KB)
+     - firmware.bin (52KB)
 ```
 
-**重要**: 配置完成后需要**重启 Agent**。
+## 📋 Requirements
 
-### 2. 验证安装
+- Docker
+- Python 3.10+ (with uv/uvx)
 
-```bash
-# 检查 Docker
-docker --version
+Optional for flashing:
+- OpenOCD
+- ST-Link or CMSIS-DAP debugger
 
-# 检查 uv
-uv --version
+## 🔧 Available Tools
 
-# 测试编译（通过 Agent）
-# "编译这个STM32项目"
-```
-
-### 3. Agent 调用示例
+### Build
 
 ```python
-# 编译固件
+# Compile firmware
 result = await mcp.stm32.build_firmware(
     workspace="/path/to/project",
     clean=True,
     jobs=4
 )
+```
 
-# 烧录固件
+### Flash
+
+```python
+# Flash to MCU
 result = await mcp.stm32.flash_firmware(
     workspace="/path/to/project",
+    programmer="stlink",  # or "cmsis-dap"
     verify=True
 )
 ```
 
-## 📁 项目结构
+### Detect
+
+```python
+# Auto-detect connected MCU
+result = await mcp.stm32.detect_mcu()
+```
+
+## 🛠️ Manual CLI Usage
+
+```bash
+# Install
+pip install stm32-mcp
+
+# Or use with uvx (no install needed)
+uvx stm32-mcp
+
+# Check environment
+python -m stm32_mcp check_environment
+```
+
+## 🐳 Docker Images
+
+```bash
+# Pull pre-built image
+docker pull legogogoagent/stm32-toolchain:12.3
+
+# Tags available
+# - :12.3 - GCC 12.3 (stable)
+# - :latest - Latest release
+```
+
+## 📁 Project Structure
 
 ```
 STM32_Complier_MCP/
-├── docker/                      # Docker编译环境
-│   ├── Dockerfile              # arm-none-eabi-gcc工具链镜像
-│   └── flash.Dockerfile        # 烧录工具镜像 (OpenOCD/ST-Link)
-├── tools/                       # 编译工具脚本
-│   ├── build.sh                # 容器内编译入口脚本
-│   └── flash.sh                # 容器内烧录入口脚本
-├── mcp_build/                   # Build MCP Server核心代码
-│   ├── __init__.py
-│   ├── stm32_build_server.py   # Build MCP主程序
-│   └── gcc_parse.py            # GCC/LD错误解析器
-├── mcp_flash/                   # Flash MCP Server核心代码
-│   ├── __init__.py
-│   └── stm32_flash_server.py   # Flash MCP主程序
-├── ESP32_STM32_Bridge/          # ESP32远程烧录桥接器
-│   ├── firmware/               # ESP32 Arduino固件
-│   ├── scripts/                # Python客户端
-│   └── tests/                  # Flash算法单元测试
-├── Test_Data/                   # 测试工程
-├── ARCHITECTURE.md             # 架构文档 (v1.0 → v2.0)
-├── CHANGELOG.md                # 版本变更日志
-└── requirements.txt            # Python依赖
+├── src/stm32_mcp/          # MCP Server implementation
+│   ├── server.py           # Main MCP server with tools
+│   ├── docker_runner.py    # Docker image management
+│   ├── gcc_parse.py        # GCC error parser
+│   └── build.sh            # Container build script
+├── docker/                 # Docker configurations
+├── ESP32_STM32_Bridge/     # ESP32 remote flashing (optional)
+├── Test_Data/              # Example STM32 projects
+├── pyproject.toml          # Package configuration
+└── README.md               # This file
 ```
 
-## 🛡️ 核心原则
+## 🔍 How It Works
 
-| 原则 | 说明 |
-|------|------|
-| **MCP只编译，不改代码** | 源码以只读方式挂载进Docker容器 (`:ro`) |
-| **Agent只改代码，不直接编译** | 所有编译动作都通过MCP工具调用 |
-| **结构化错误返回** | MCP解析GCC输出，返回`file/line/col/message`结构化数据 |
-| **可重复构建环境** | 使用Docker容器保证编译环境一致性 |
+```
+Agent (AI)
+    ↓
+MCP Protocol
+    ↓
+stm32-mcp (PyPI)
+    ↓
+Docker Container
+    ↓
+arm-none-eabi-gcc
+    ↓
+STM32 Firmware
+```
 
-## 📋 开发阶段
+1. Agent sends compile request via MCP
+2. `stm32-mcp` pulls Docker image if needed
+3. Container auto-fixes Makefile issues
+4. GCC compiles firmware inside container
+5. Results returned to Agent
 
-### v1.0 已完成
+## 🐛 Troubleshooting
 
-- [x] **Phase 0**: 项目初始化与仓库搭建
-- [x] **Phase 1**: Docker编译环境 (Dockerfile + build.sh)
-- [x] **Phase 2**: Build MCP Server (stm32_build_server.py + gcc_parse.py)
-- [x] **Phase 3**: Flash MCP Server (stm32_flash_server.py)
-- [x] **Phase 2.5**: ESP32远程烧录桥接器
-  - [x] ESP32 Arduino固件 (SWD协议实现)
-  - [x] STM32F1xx Flash编程算法
-  - [x] STM32F4xx Flash编程算法
-  - [x] 73个单元测试
-- [x] **Skill**: OpenCode Agent Skill (stm32-dev-workflow)
+### "MCP server 'stm32' not found"
 
-### v2.0 开发中
+**Cause**: Wrong config file path
 
-- [ ] 重构为 PyPI 包 (`stm32-mcp`)
-- [ ] `uvx stm32-mcp` 零安装启动
-- [ ] 预构建 Docker 镜像 (`legogogoagent/stm32-toolchain:12.3`)
-- [ ] 多架构支持 (x86_64 + ARM64)
-- [ ] Makefile自动修复 (容器内)
-- [ ] 增强错误提示 (头文件大小写检测)
+**Fix**: Use `.opencode/opencode.json` (not `mcp.json`):
+```json
+{
+  "mcp": {
+    "stm32": {
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+Then restart your agent.
 
-## 🔧 技术栈
+### Docker pull fails
 
-- **Language**: Python 3.10+
-- **MCP Framework**: FastMCP (mcp[cli]>=1.26.0)
-- **Container**: Docker + Ubuntu 24.04
-- **Toolchain**: arm-none-eabi-gcc (GNU Arm Embedded Toolchain)
-- **Build System**: GNU Make
-- **Target**: STM32F1xx / F4xx 系列
+```bash
+# Manual pull
+docker pull legogogoagent/stm32-toolchain:12.3
+```
 
-## 📝 许可证
+### OpenOCD not found (for flashing)
 
-MIT License
+```bash
+# Ubuntu/Debian
+sudo apt install openocd
 
-## 🔗 参考文档
+# macOS
+brew install openocd
+```
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - 架构文档与重构计划
-- [CHANGELOG.md](CHANGELOG.md) - 版本变更日志
-- [MCP官方规范](https://modelcontextprotocol.io/)
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-- [Arm GNU Toolchain](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)
+## 📚 Documentation
+
+- [Architecture](ARCHITECTURE.md) - Design decisions and v2.0 refactor
+- [Skill Guide](.opencode/skills/stm32-dev-workflow/SKILL.md) - OpenCode integration
+- [Changelog](CHANGELOG.md) - Version history
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing`)
+5. Open Pull Request
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file
+
+## 🔗 Links
+
+- PyPI: https://pypi.org/project/stm32-mcp/
+- Docker Hub: https://hub.docker.com/r/legogogoagent/stm32-toolchain
+- Issues: https://github.com/legogogoagent/STM32-Complier-MCP/issues
+
+---
+
+<p align="center">
+  Made with ❤️ for AI-powered embedded development
+</p>

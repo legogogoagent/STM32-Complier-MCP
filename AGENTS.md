@@ -1,305 +1,152 @@
-# AGENTS.md - STM32 MCP Build Server
+# AGENTS.md - STM32 MCP Project Guide
 
-**Project**: STM32 MCP Build Server - AI自动编译修复系统
-**Purpose**: 构建MCP (Model Context Protocol) Build Server，实现"修改→编译→解析错误→自动修复"闭环
-**Tech Stack**: Python + FastMCP + Docker + arm-none-eabi-gcc
+**Project**: STM32 MCP - AI-powered embedded development  
+**Version**: v2.0 (uvx + Docker)  
+**Purpose**: MCP Server for STM32 compile/flash via AI agents
 
 ---
 
-## 项目结构
+## Quick Reference
+
+### Project Structure
 
 ```
 STM32_Complier_MCP/
-├── docker/                      # Docker编译环境
-│   ├── Dockerfile              # arm-none-eabi-gcc工具链镜像
-│   └── flash.Dockerfile        # 烧录工具镜像 (OpenOCD/ST-Link)
-├── tools/                       # 编译工具脚本
-│   ├── build.sh                # 容器内编译入口脚本
-│   └── flash.sh                # 容器内烧录入口脚本
-├── mcp_build/                   # Build MCP Server核心代码
-│   ├── __init__.py
-│   ├── stm32_build_server.py   # Build MCP主程序
-│   └── gcc_parse.py            # GCC/LD错误解析器
-├── mcp_flash/                   # 🆕 Flash MCP Server核心代码
-│   ├── __init__.py
-│   └── stm32_flash_server.py   # Flash MCP主程序
-├── out/                         # 🆕 共享输出目录 (编译产物)
-├── Requirement/                 # 需求文档
-│   ├── stm32_mcp_2in1.txt
-│   ├── stm32_mcp_gpt.txt
-│   └── stm32_mcp_opus.txt
-├── Test_Data/                   # 测试工程
-│   └── Elder_Lifter_STM32_V1.32/
-├── docs/                        # 项目文档
-├── scripts/                     # 辅助脚本
-├── tests/                       # 单元测试
-├── .opencode/                   # 会话记忆
-├── AGENTS.md                   # 本文件 - Agent规范
-├── CHANGELOG.md                # 版本变更日志
-├── README.md                   # 项目说明
-└── requirements.txt            # Python依赖
+├── src/stm32_mcp/          # v2.0 MCP Server (PyPI package)
+│   ├── server.py           # Main MCP server (build + flash tools)
+│   ├── docker_runner.py    # Docker image management
+│   ├── gcc_parse.py        # GCC error parser
+│   └── build.sh            # Container build script
+├── docker/                 # Docker configurations
+├── ESP32_STM32_Bridge/     # Optional: ESP32 remote flashing
+├── Test_Data/              # Example STM32 projects
+├── pyproject.toml          # Package config
+└── README.md
 ```
 
----
+### Installation (One Line)
 
-## 🏗️ 双MCP架构设计
-
-### 架构图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Agent (AI Assistant)                      │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │  完整工作流程:                                              ││
-│  │  1. 修改代码 → 2. Build MCP编译 → 3. 解析错误修复          ││
-│  │  → 4. 编译成功 → 5. Flash MCP烧录 → 6. MCU运行验证         ││
-│  └─────────────────────────────────────────────────────────────┘│
-└──────────┬───────────────────────────────┬──────────────────────┘
-           │                               │
-    ┌──────▼──────┐              ┌─────────▼────────┐
-    │  Build MCP   │              │   Flash MCP      │
-    │  (编译)      │   产物传递   │   (烧录)         │
-    │              │◄────────────►│                  │
-    │  build_      │  (共享out/)  │  flash_          │
-    │  firmware()  │              │  firmware()      │
-    └──────┬──────┘              └─────────┬────────┘
-           │                               │
-    ┌──────▼──────┐              ┌─────────▼────────┐
-    │ Docker编译   │              │  烧录工具链       │
-    │ 容器        │              │ (OpenOCD/        │
-    └─────────────┘              │  ST-Link/J-Link) │
-           │                     └──────────────────┘
-           └──────────────┬────────────────┘
-                          ▼
-                 ┌─────────────────┐
-                 │   STM32 MCU     │
-                 │  (STM32F103CBTx)│
-                 └─────────────────┘
-```
-
-### 数据流说明
-
-1. **Build阶段**: Agent修改代码 → Build MCP编译 → 产物保存到 `out/` 目录
-2. **Flash阶段**: 编译成功后 → Flash MCP读取 `out/*.hex` → 烧录到MCU
-3. **验证阶段**: 烧录完成后 → Agent验证MCU运行状态
-
-### 产物共享机制
-
-- **输出目录**: `workspace/out/` (Build MCP写入, Flash MCP读取)
-- **产物格式**: 
-  - `.hex` - Intel Hex格式 (烧录用)
-  - `.bin` - 二进制格式 (烧录用)
-  - `.elf` - ELF格式 (调试用)
-  - `build.log` - 编译日志
-
----
-
-## AGENT ROLES
-
-### @git-manager (Git 协调员)
-
-**职责**: 管理项目版本控制，确保代码安全
-
-#### 自动触发词（听到这些立即执行提交流程）
-- "写完了"、"完成了"、"ok了"、"搞定了" → 标准提交
-- "保存一下"、"提交吧"、"commit" → 标准提交  
-- "强制提交"、"保存检查点"、"commit now" → 立即提交（不问确认）
-
-#### 定时提醒
-- 会话开始30分钟后，如果检测到有未提交的改动：
-  "⏰ 已工作30分钟，期间改动了：[文件列表]。是否提交当前进度？"
-
-#### 记忆维护
-维护 `.opencode/session.json`：
 ```json
+// .opencode/opencode.json
 {
-  "session_id": "uuid",
-  "start_time": "2026-02-11T10:00:00Z",
-  "files_modified": [
-    {
-      "path": "mcp_build/stm32_build_server.py",
-      "edit_count": 3,
-      "last_modified": "2026-02-11T10:30:00Z",
-      "context": "实现build_firmware工具"
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "stm32": {
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
     }
-  ],
-  "commits": [
-    {
-      "hash": "abc123",
-      "message": "feat: 实现Docker编译环境",
-      "time": "2026-02-11T10:15:00Z"
-    }
-  ]
+  }
 }
 ```
 
----
-
-### @build-master (构建专家)
-
-**职责**: 负责Docker编译环境和Makefile生成
-
-#### 核心任务
-1. 创建 `docker/Dockerfile` - Ubuntu 24.04 + arm-none-eabi-gcc
-2. 创建 `tools/build.sh` - 容器内编译脚本
-3. 为测试工程生成 `Makefile`
-4. 确保编译环境可重复
-
-#### 验收标准
-- Docker镜像构建成功 (< 1GB)
-- arm-none-eabi-gcc --version 输出正确
-- build.sh 能在只读 /src 下正常工作
+Then restart your agent.
 
 ---
 
-### @mcp-developer (MCP开发者)
+## Key Components
 
-**职责**: 实现MCP Build Server核心功能
+### 1. PyPI Package (`stm32-mcp`)
 
-#### 核心任务
-1. 创建 `mcp_build/stm32_build_server.py` - FastMCP Server
-2. 实现 `build_firmware` 工具
-3. 安全校验和超时控制
-4. Docker集成和错误处理
+Published to: https://pypi.org/project/stm32-mcp/
 
-#### API规范
+Install:
+```bash
+pip install stm32-mcp
+# or
+uvx stm32-mcp
+```
+
+### 2. Docker Image (`legogogoagent/stm32-toolchain`)
+
+Published to: https://hub.docker.com/r/legogogoagent/stm32-toolchain
+
+Pull:
+```bash
+docker pull legogogoagent/stm32-toolchain:12.3
+```
+
+### 3. MCP Tools
+
+Available via `mcp.stm32.*`:
+
 ```python
-@tool
-def build_firmware(
-    workspace: str,           # 工程根目录绝对路径
-    project_subdir: str = "",  # Makefile子目录
-    clean: bool = True,       # 是否先make clean
-    jobs: int = 8,           # 并行任务数
-    make_target: str = "all", # make目标
-    timeout_sec: int = 600,   # 超时秒数
-    max_log_tail_kb: int = 96, # 日志尾部大小
-    image: str = ""          # 覆盖默认镜像
-) -> dict:
-    """
-    返回结构:
-    {
-        "ok": bool,
-        "exit_code": int,
-        "image": str,
-        "outdir": str,
-        "artifacts": list[str],
-        "errors": list[dict],
-        "log_tail": str,
-        "docker_tail": str
-    }
-    """
+# Build firmware
+await mcp.stm32.build_firmware(
+    workspace="/path/to/project",
+    clean=True,
+    jobs=4
+)
+
+# Flash to MCU
+await mcp.stm32.flash_firmware(
+    workspace="/path/to/project",
+    programmer="stlink",
+    verify=True
+)
+
+# Detect MCU
+await mcp.stm32.detect_mcu()
+
+# Check environment
+await mcp.stm32.check_environment()
 ```
 
 ---
 
-### @parser-engineer (解析工程师)
+## Development Guidelines
 
-**职责**: 实现GCC/LD错误解析器
+### Adding New Features
 
-#### 核心任务
-1. 创建 `mcp_build/gcc_parse.py`
-2. 解析编译期错误：`file:line:col: error: message`
-3. 解析链接期错误：`undefined reference to`
-4. 路径归一化和排序
+1. **Edit src/stm32_mcp/server.py** - Add new `@mcp.tool()` decorated functions
+2. **Test locally**:
+   ```bash
+   pip install -e .
+   python -m stm32_mcp
+   ```
+3. **Update version** in `src/stm32_mcp/__init__.py`
+4. **Build and upload**:
+   ```bash
+   python -m build
+   twine upload dist/*
+   ```
 
-#### 错误结构
-```python
-{
-    "type": "compiler" | "linker" | "toolchain" | "system",
-    "severity": "error" | "warning" | "note",
-    "file": "Core/Src/main.c",  # 相对路径
-    "line": 123,
-    "col": 9,
-    "message": "unknown type name 'Foo_t'",
-    "raw": "原始行文本"
-}
+### Docker Image Updates
+
+1. Edit `docker/Dockerfile`
+2. Build and push:
+   ```bash
+   docker build -f docker/Dockerfile -t legogogoagent/stm32-toolchain:12.3 .
+   docker push legogogoagent/stm32-toolchain:12.3
+   ```
+
+### Testing
+
+Use Test_Data projects:
+```bash
+cd Test_Data/Elder_Lifter_STM32_V1.32/Elder_Lifter_STM32
+# Then compile via Agent
 ```
 
 ---
 
-### @flash-engineer (烧录工程师) 🆕
+## Common Issues
 
-**职责**: 实现Flash MCP Server，负责将编译产物烧录到MCU
+### "MCP server not found"
+- Wrong config file: must be `.opencode/opencode.json` (not `mcp.json`)
+- Must restart agent after config change
+- Format must include `"type": "local"` and `"enabled": true`
 
-#### 核心任务
-1. 创建 `mcp_flash/stm32_flash_server.py` - Flash MCP Server
-2. 实现 `flash_firmware` 工具
-3. 支持多种烧录器 (ST-Link, OpenOCD, J-Link)
-4. USB设备权限管理
+### Docker pull fails
+- Check internet connection
+- Manual pull: `docker pull legogogoagent/stm32-toolchain:12.3`
 
-#### API规范
-```python
-@tool
-def flash_firmware(
-    workspace: str,           # 工程根目录绝对路径
-    hex_file: str = "",       # hex文件路径（相对于out/）
-    programmer: str = "stlink",  # 烧录器类型
-    interface: str = "swd",   # 接口：swd/jtag
-    verify: bool = True,      # 是否验证
-    reset: bool = True,       # 烧录后复位
-    timeout_sec: int = 120,   # 超时秒数
-) -> dict:
-    """
-    返回结构:
-    {
-        "ok": bool,
-        "exit_code": int,
-        "programmer": str,
-        "hex_file": str,
-        "stdout": str,
-        "stderr": str,
-        "device_id": str  # MCU设备ID
-    }
-    """
-```
-
-#### 支持的烧录器
-- **ST-Link/V2** - 官方烧录器，速度快
-- **OpenOCD** - 开源通用，支持多种调试器
-- **J-Link** - 商业烧录器，功能强大
-- **DAP-Link** - CMSIS-DAP标准
+### OpenOCD not found (for flashing)
+- Install OpenOCD: `sudo apt install openocd` (Ubuntu) or `brew install openocd` (macOS)
 
 ---
 
-## 开发流程
-
-### 阶段1: Docker编译环境
-1. 创建 `docker/Dockerfile`
-2. 创建 `tools/build.sh`
-3. 生成测试工程 `Makefile`
-4. **验收**: docker build成功，能编译测试工程
-
-### 阶段2: MCP Server核心
-1. 创建 `mcp_build/stm32_build_server.py`
-2. 创建 `mcp_build/__init__.py`
-3. 创建 `requirements.txt`
-4. **验收**: MCP Inspector能调用，返回编译结果
-
-### 阶段3: 错误解析器
-1. 创建 `mcp_build/gcc_parse.py`
-2. 集成到MCP Server
-3. 完整闭环测试
-4. **验收**: 正确解析GCC/LD错误
-
----
-
-## 🆕 Flash MCP 扩展 (Phase 2.5)
-
-### 阶段2.5: Flash MCP Server 🆕
-1. 创建 `mcp_flash/stm32_flash_server.py`
-2. 创建 `mcp_flash/__init__.py`
-3. 创建 `docker/flash.Dockerfile` (烧录工具环境)
-4. **验收**: 能读取out/*.hex并烧录到MCU
-
-### 阶段3.5: 双MCP集成测试 🆕
-1. Build MCP编译 → 输出到out/
-2. Flash MCP读取 → 烧录到MCU
-3. 验证MCU运行状态
-4. **验收**: 完整闭环（修改→编译→烧录→运行）
-
----
-
-## 提交信息格式
+## Git Commit Format
 
 ```
 <type>(<scope>): <subject>
@@ -309,57 +156,23 @@ def flash_firmware(
 <footer>
 ```
 
-### Type
-- `feat`: 新功能
-- `fix`: 修复bug
-- `docs`: 文档更新
-- `style`: 代码格式（不影响功能）
-- `refactor`: 重构
-- `test`: 测试相关
-- `chore`: 构建/工具
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 
-### Scope
-- `docker`: Docker相关
-- `mcp`: MCP Server相关
-- `parser`: 错误解析器
-- `tools`: 工具脚本
-- `test`: 测试相关
-- `docs`: 文档
-
-### 示例
+Example:
 ```
-feat(docker): 添加arm-none-eabi-gcc编译环境
+feat(server): add detect_mcu tool
 
-- 基于Ubuntu 24.04
-- 安装gcc-arm-none-eabi工具链
-- 创建/work和/out目录
+- Auto-detect connected STM32 MCU via OpenOCD
+- Returns device ID and family info
 
-Closes #1
+Closes #3
 ```
 
 ---
 
-## 安全规范
+## References
 
-### 必须遵守
-1. **MCP只编译，不改代码** - workspace以只读(:ro)挂载
-2. **Agent只改代码，不直接编译** - 所有编译通过MCP
-3. **容器禁网** - 使用 `--network=none`
-4. **路径白名单** - 校验 workspace 在 `STM32_ALLOWED_ROOT` 下
-5. **超时控制** - 防止编译卡死
-
-### 禁止操作
-- ❌ 在MCP中修改workspace任何文件
-- ❌ 接受用户自定义shell命令
-- ❌ 容器访问网络
-- ❌ 不做路径校验直接挂载
-
----
-
-## 参考文档
-
-- [MCP官方规范](https://modelcontextprotocol.io/)
+- [MCP Specification](https://modelcontextprotocol.io/)
 - [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-- [Arm GNU Toolchain](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)
-- [STM32CubeMX用户手册](https://www.st.com/resource/en/user_manual/um1718-stm32cubemx-for-stm32-configuration-and-initialization-code-generation-stmicroelectronics.pdf)
-
+- [PyPI Package](https://pypi.org/project/stm32-mcp/)
+- [Docker Hub](https://hub.docker.com/r/legogogoagent/stm32-toolchain)
