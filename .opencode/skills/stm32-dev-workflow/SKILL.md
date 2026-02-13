@@ -1,54 +1,116 @@
 ---
 name: stm32-dev-workflow
 description: |-
-  完整的STM32开发工作流Skill，封装Build MCP和Flash MCP调用，支持编译、烧录、调试闭环。
-  如果Skill未安装，使用SKILL_INSTALL.md从GitHub自动安装到当前项目。
+  STM32开发工作流Skill（v2.0）- 通过uvx自动安装，支持编译、烧录、调试闭环。
+  
+  **v2.0重大更新**: 现在使用 `uvx stm32-mcp` 自动安装，无需手动复制文件！
   
   Use proactively when:
-  - 用户要求修改STM32代码后需要编译
+  - 用户要求"编译STM32项目"
   - 需要烧录固件到STM32 MCU
-  - 用户要求"安装STM32 skill"、"从GitHub安装skill"、"配置STM32环境"
-  - Skill未安装但用户提到stm32-dev-workflow或STM32_Complier_MCP仓库
+  - 用户要求"配置STM32开发环境"、"安装STM32工具"
   
   Examples:
-  - user: "修改LED闪烁频率并编译" → 检查skill是否存在，不存在则先安装 → 修改代码 → 调用build_firmware
-  - user: "烧录固件到STM32" → 检查skill → 调用flash_firmware → 自动检测MCU → 烧录
-  - user: "帮我安装https://github.com/legogogoagent/STM32-Complier-MCP的skill" → 克隆仓库 → 复制到.opencode/skills/ → 配置mcp.json
-  - user: "配置STM32开发环境" → 自动检测并安装skill → 完成配置
-  - user: "从legogogoagent/STM32-Complier-MCP安装skill" → git clone → 安装skill → 验证
+  - user: "编译这个STM32项目" → 检查mcp.json → 创建配置 → 调用build_firmware
+  - user: "烧录固件到STM32" → 调用flash_firmware → 自动检测MCU → 烧录
+  - user: "配置STM32开发环境" → 创建.opencode/mcp.json → 完成
 ---
 
-> 💡 **自动安装**: 如果此Skill未安装，Agent应读取[SKILL_INSTALL.md](./SKILL_INSTALL.md)并按步骤自动从GitHub安装到当前项目。
+> 🎉 **v2.0已发布**: 现在通过 `uvx stm32-mcp` 自动安装，零配置，零污染！
+> 
+> - PyPI: https://pypi.org/project/stm32-mcp/
+> - Docker: https://hub.docker.com/r/legogogoagent/stm32-toolchain
 
-# STM32开发工作流 Skill
+# STM32开发工作流 Skill (v2.0)
 
-## 概述
+## 快速开始（3秒钟）
 
-此Skill封装了Build MCP和Flash MCP的完整调用流程，让Agent可以通过简单的接口实现：
-1. 代码修改后的自动编译
-2. 编译错误自动修复（循环）
-3. 自动烧录到MCU
-4. 串口验证
-5. 失败时自动重试或询问用户
-
-## 前置条件
-
-使用此Skill前，确保MCP Server已配置：
+在任何STM32项目中，创建 `.opencode/mcp.json`：
 
 ```json
-// .opencode/mcp.json
 {
   "mcpServers": {
-    "stm32-build": {
-      "command": "python",
-      "args": ["-m", "mcp_build.stm32_build_server"]
-    },
-    "stm32-flash": {
-      "command": "python", 
-      "args": ["-m", "mcp_flash.stm32_flash_server_v2"]
+    "stm32": {
+      "command": "uvx",
+      "args": ["stm32-mcp"]
     }
   }
 }
+```
+
+✅ 完成！Agent现在可以自动编译和烧录STM32项目了。
+
+## 安装流程（Agent自动执行）
+
+### 方式1: 自动检测并配置
+
+```
+User: 编译这个STM32项目
+
+Agent自动执行:
+1. 检查 .opencode/mcp.json 是否存在
+2. 如果不存在，自动创建配置
+3. uvx 自动下载并启动 stm32-mcp
+4. 调用 build_firmware 编译
+5. 返回结果
+```
+
+### 方式2: 手动配置
+
+```
+User: 配置STM32开发环境
+
+Agent:
+  正在配置STM32开发环境...
+  
+  1. 创建 .opencode/mcp.json
+  2. 配置 uvx stm32-mcp
+  3. 验证Docker环境
+  
+  ✅ 配置完成！现在可以编译STM32项目了。
+```
+
+## 前置条件
+
+### 必需
+- **Docker** - 用于编译环境（自动下载镜像）
+- **uv** - Python包管理器（通常已安装）
+
+### 可选（烧录需要）
+- **ST-Link** 调试器
+- **OpenOCD** - 烧录工具
+
+### 安装检查命令
+
+```bash
+# 检查Docker
+docker --version
+
+# 检查uv
+uv --version
+```
+
+## MCP工具调用（v2.0统一接口）
+
+```python
+# 新的统一接口（v2.0）
+result = await mcp.stm32.build_firmware(
+    workspace="/path/to/project",
+    clean=True,
+    jobs=4
+)
+
+result = await mcp.stm32.flash_firmware(
+    workspace="/path/to/project",
+    hex_file="",
+    verify=True
+)
+
+result = await mcp.stm32.detect_mcu()
+
+result = await mcp.stm32.check_environment()
+
+result = await mcp.stm32.get_server_info()
 ```
 
 ## 核心工作流
@@ -71,7 +133,7 @@ async def modify_and_build(agent, workspace, task_description):
         agent.modify_code(task_description)
         
         # Step 2: 编译
-        build_result = await agent.mcp.stm32_build.build_firmware(
+        build_result = await agent.mcp.stm32.build_firmware(
             workspace=workspace,
             clean=True
         )
@@ -121,7 +183,7 @@ async def full_development_loop(agent, workspace, task):
         return {"ok": False, "stage": "build", "error": build.error}
     
     # Step 3: 烧录
-    flash = await agent.mcp.stm32_flash.flash_firmware(
+    flash = await agent.mcp.stm32.flash_firmware(
         workspace=workspace,
         auto_detect=True,
         prefer_local=True
@@ -134,7 +196,7 @@ async def full_development_loop(agent, workspace, task):
     
     # Step 4: 串口验证（可选）
     if task.requires_verification:
-        serial = await agent.mcp.stm32_flash.open_serial(
+        serial = await agent.mcp.stm32.open_serial(
             baudrate=115200
         )
         await serial.write(b"test\n")
@@ -155,7 +217,7 @@ async def full_development_loop(agent, workspace, task):
 
 ```python
 # 编译固件
-build_result = await mcp.stm32_build.build_firmware(
+build_result = await mcp.stm32.build_firmware(
     workspace="/path/to/project",     # 工程根目录（必需）
     project_subdir="",                # Makefile子目录
     clean=True,                       # 是否先make clean
@@ -183,7 +245,7 @@ build_result = await mcp.stm32_build.build_firmware(
 
 ```python
 # 烧录固件
-flash_result = await mcp.stm32_flash.flash_firmware(
+flash_result = await mcp.stm32.flash_firmware(
     workspace="/path/to/project",     # 工程根目录（必需）
     hex_file="",                      # hex文件路径（可选，自动查找）
     auto_detect=True,                 # 自动检测MCU
@@ -211,15 +273,15 @@ flash_result = await mcp.stm32_flash.flash_firmware(
 }
 
 # 健康检查
-health = await mcp.stm32_flash.health_check()
+health = await mcp.stm32.health_check()
 # 返回: {ok, status, local_available, remote_available, targets_detected, recommendation}
 
 # 检测MCU
-detection = await mcp.stm32_flash.detect_mcu()
+detection = await mcp.stm32.detect_mcu()
 # 返回: {ok, detected, device_id, name, family, mcu_info, flasher_type}
 
 # 列出烧录器
-flashers = await mcp.stm32_flash.list_flashers()
+flashers = await mcp.stm32.list_flashers()
 # 返回: {ok, total, available, flashers: [...]}
 ```
 
@@ -284,7 +346,7 @@ User: 编译这个STM32项目
 
 Agent:
   1. 确定workspace路径
-  2. 调用 mcp.stm32_build.build_firmware
+  2. 调用 mcp.stm32.build_firmware
   3. 检查结果
   4. 如果成功，显示编译产物信息
   5. 如果失败，解析错误并询问用户是否自动修复
@@ -345,7 +407,7 @@ Agent:
 
 1. **始终先检查健康状态**
    ```python
-   health = await mcp.stm32_flash.health_check()
+   health = await mcp.stm32.health_check()
    if not health["local_available"]:
        print("⚠️  ST-Link未连接，请检查硬件")
    ```
@@ -371,23 +433,59 @@ Agent:
    - 提供清晰的错误信息
    - 给出可能的解决方案
 
+## 架构对比
+
+### v1.0 (旧方式)
+
+```
+安装: 6步，20+分钟
+1. git clone 仓库
+2. cp -r mcp_build/ 项目/
+3. cp -r mcp_flash/ 项目/
+4. pip install -r requirements.txt
+5. docker build ...
+6. 配置 mcp.json
+```
+
+### v2.0 (新方式) ⭐
+
+```
+安装: 1步，3秒钟
+1. 创建 .opencode/mcp.json（uvx stm32-mcp）
+
+✅ 零配置，零污染，自动更新
+```
+
 ## 限制和注意事项
 
-1. **当前仅支持本地ST-Link**（Phase 1）
-   - ESP32远程烧录在Phase 2实现
-   - 目前 `prefer_local=True` 是最佳选择
+1. **当前仅支持本地ST-Link**
+   - ESP32远程烧录在后续版本实现
 
-2. **串口功能简化**
-   - 当前版本串口客户端为简化实现
-   - 完整功能在Phase 2提供
-
-3. **自动修复能力**
+2. **自动修复能力**
    - 简单的编译错误（如拼写、头文件）可以自动修复
    - 逻辑错误需要用户介入
    - 最多自动重试3次
 
+3. **Docker必需**
+   - 编译依赖Docker环境
+   - 镜像自动从Docker Hub拉取
+
 ## 版本历史
 
-- v1.0.0: 基础工作流，支持本地Build和Flash
-- v1.1.0: 添加智能错误处理
-- v2.0.0: 计划添加ESP32远程烧录支持
+- **v2.0.0** (2026-02-13): 重大重构
+  - ✅ uvx自动安装（`uvx stm32-mcp`）
+  - ✅ 预构建Docker镜像（Docker Hub）
+  - ✅ Makefile自动修复（Windows路径、GCC选项）
+  - ✅ 统一MCP接口（stm32.build_firmware, stm32.flash_firmware）
+  - ✅ 零配置，零污染
+  
+- **v1.0.0** (2026-02-12): 初始版本
+  - 本地Build + Flash MCP
+  - 手动安装（复制文件到项目）
+
+## 参考链接
+
+- PyPI: https://pypi.org/project/stm32-mcp/
+- Docker Hub: https://hub.docker.com/r/legogogoagent/stm32-toolchain
+- GitHub: https://github.com/legogogoagent/STM32-Complier_MCP
+- Issue #1: https://github.com/legogogoagent/STM32-Complier-MCP/issues/1
