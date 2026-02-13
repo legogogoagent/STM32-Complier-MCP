@@ -37,20 +37,25 @@ Agent修改代码 → Build MCP编译 → 解析错误自动修复 → 编译成
 - 安装步骤繁琐 (6步, >20分钟首次安装)
 - 往用户项目复制代码 (非行业标准)
 
-### v2.0 (开发中 → `feature/uvx-docker-refactor`)
+### v2.0 (已发布 ✅)
 
 安装方式：`uvx` + Docker，**零安装、零污染**
 
 ```json
+// .opencode/opencode.json
 {
-  "mcpServers": {
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "stm32": {
-      "command": "uvx",
-      "args": ["stm32-mcp"]
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
     }
   }
 }
 ```
+
+**⚠️ 注意**: OpenCode 使用 `.opencode/opencode.json`，不是 `.opencode/mcp.json`！配置后需重启 Agent。
 
 **改进**:
 - ✅ 不复制代码到用户项目
@@ -63,57 +68,58 @@ Agent修改代码 → Build MCP编译 → 解析错误自动修复 → 编译成
 
 ---
 
-## 🚀 快速开始 (v1.0)
+## 🚀 快速开始 (v2.0)
 
-> 以下为 v1.0 安装方式。v2.0 发布后将大幅简化。
+### 1. 配置 MCP Server
 
-### 1. 构建 Docker 镜像
-
-```bash
-docker build -f docker/Dockerfile -t stm32-toolchain:latest .
-```
-
-### 2. 验证镜像
+创建 `.opencode/opencode.json`：
 
 ```bash
-docker run --rm stm32-toolchain:latest arm-none-eabi-gcc --version
-docker run --rm stm32-toolchain:latest make --version
+mkdir -p .opencode
+cat > .opencode/opencode.json << 'EOF'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "stm32": {
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
+    }
+  }
+}
+EOF
 ```
 
-### 3. 安装依赖
+**重要**: 配置完成后需要**重启 Agent**。
+
+### 2. 验证安装
 
 ```bash
-pip install -r requirements.txt
+# 检查 Docker
+docker --version
+
+# 检查 uv
+uv --version
+
+# 测试编译（通过 Agent）
+# "编译这个STM32项目"
 ```
 
-### 4. 启动 MCP Server
-
-```bash
-# STDIO 模式
-python -m mcp_build.stm32_build_server
-
-# 或使用 MCP Inspector 调试
-uv run mcp dev mcp_build/stm32_build_server.py
-```
-
-### 5. Agent 调用示例
+### 3. Agent 调用示例
 
 ```python
-from agents import Agent
-from agents.mcp import MCPServerStdio
+# 编译固件
+result = await mcp.stm32.build_firmware(
+    workspace="/path/to/project",
+    clean=True,
+    jobs=4
+)
 
-async def main():
-    async with MCPServerStdio(
-        command="python",
-        args=["-m", "mcp_build.stm32_build_server"],
-        cwd="/path/to/your-project",
-    ) as mcp_server:
-        agent = Agent(
-            name="STM32 Build Agent",
-            instructions="...",
-            mcp_servers=[mcp_server],
-        )
-        # ... agent 循环修复逻辑
+# 烧录固件
+result = await mcp.stm32.flash_firmware(
+    workspace="/path/to/project",
+    verify=True
+)
 ```
 
 ## 📁 项目结构

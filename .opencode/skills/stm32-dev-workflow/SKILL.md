@@ -23,19 +23,55 @@ description: |-
 
 # STM32开发工作流 Skill (v2.0)
 
-## 快速开始（3秒钟）
+## ⚠️ 重要: OpenCode 配置路径
 
-在任何STM32项目中，创建 `.opencode/mcp.json`：
+**正确的配置文件路径是 `.opencode/opencode.json`，不是 `.opencode/mcp.json`！**
 
 ```json
+// ✅ 正确: .opencode/opencode.json
 {
-  "mcpServers": {
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "stm32": {
-      "command": "uvx",
-      "args": ["stm32-mcp"]
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
     }
   }
 }
+```
+
+```json
+// ❌ 错误: .opencode/mcp.json (OpenCode 不会读取此文件)
+{
+  "mcpServers": { ... }
+}
+```
+
+配置完成后，**需要重启 Agent** 才能加载新的 MCP 服务器。
+
+## 快速开始（3秒钟）
+
+在任何STM32项目中：
+
+```bash
+# 1. 创建配置目录和文件
+mkdir -p .opencode
+cat > .opencode/opencode.json << 'EOF'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "stm32": {
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
+    }
+  }
+}
+EOF
+
+# 2. 重启 OpenCode Agent
+# 3. 开始使用！
 ```
 
 ✅ 完成！Agent现在可以自动编译和烧录STM32项目了。
@@ -45,30 +81,55 @@ description: |-
 ### 方式1: 自动检测并配置
 
 ```
-User: 编译这个STM32项目
-
-Agent自动执行:
-1. 检查 .opencode/mcp.json 是否存在
-2. 如果不存在，自动创建配置
-3. uvx 自动下载并启动 stm32-mcp
-4. 调用 build_firmware 编译
-5. 返回结果
-```
-
-### 方式2: 手动配置
-
-```
 User: 配置STM32开发环境
 
 Agent:
   正在配置STM32开发环境...
   
-  1. 创建 .opencode/mcp.json
-  2. 配置 uvx stm32-mcp
-  3. 验证Docker环境
+  1. 检查 .opencode/opencode.json 是否存在
+  2. 如果不存在，创建正确格式的配置
+  3. 提醒用户：配置完成后需要重启 Agent
+  4. uvx 自动下载并启动 stm32-mcp
+  5. 验证Docker环境
   
-  ✅ 配置完成！现在可以编译STM32项目了。
+  ✅ 配置完成！请重启 Agent 后使用。
 ```
+
+### 方式2: 手动配置
+
+```bash
+# 创建项目级配置（推荐）
+mkdir -p .opencode
+cat > .opencode/opencode.json << 'EOF'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "stm32": {
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
+    }
+  }
+}
+EOF
+
+# 或者创建用户全局配置（所有项目可用）
+mkdir -p ~/.config/opencode
+cat > ~/.config/opencode/opencode.json << 'EOF'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "stm32": {
+      "type": "local",
+      "command": ["uvx", "stm32-mcp"],
+      "enabled": true
+    }
+  }
+}
+EOF
+```
+
+**重要**: 修改配置后必须**重启 Agent**！
 
 ## 前置条件
 
