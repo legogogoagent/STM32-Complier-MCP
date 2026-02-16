@@ -18,12 +18,15 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
+#include "bridge_config.h"
 #include "nvs_storage.h"
 #include "gpio_driver.h"
 #include "session_manager.h"
 #include "wifi_manager.h"
 #include "mcp_server.h"
 #include "http_server.h"
+#include "soft_uart.h"
+#include "websocket_server.h"
 
 static const char *TAG = "MAIN";
 
@@ -64,6 +67,12 @@ void app_main(void) {
     
     /* 6. 启动 HTTP 服务器 - 提供 Web 配置界面 (端口 80) */
     http_server_init();
+
+    /* 7. 初始化 Soft UART - 软串口驱动 (GPIO0/1) */
+    ESP_LOGI(TAG, "Initializing Soft UART on GPIO%d/%d", GPIO_UART_TX, GPIO_UART_RX);
+
+    /* 8. 启动 WebSocket 服务器 - 浏览器串口透传 (端口 8080) */
+    websocket_server_init();
 
     ESP_LOGI(TAG, "===============================================");
     ESP_LOGI(TAG, "System initialized successfully!");

@@ -20,9 +20,9 @@
 #define GPIO_SWCLK              4       // D2: SWD Clock
 #define GPIO_NRST               5       // D3: Target Reset (Active Low)
 
-// --- UART Bridge (Software UART on GPIO0/1) ---
-#define GPIO_UART_RX            0       // D4: RX (Connect to Target TX)
-#define GPIO_UART_TX            1       // D5: TX (Connect to Target RX)
+// --- UART Bridge ---
+#define GPIO_UART_RX            6       // D4: RX (Connect to Target TX)
+#define GPIO_UART_TX            7       // D5: TX (Connect to Target RX)
 
 // --- USB Debug (Native USB) ---
 #define GPIO_USB_DP             19      // Internal USB D+

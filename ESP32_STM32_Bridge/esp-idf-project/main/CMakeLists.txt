@@ -7,12 +7,16 @@ idf_component_register(
         "wifi_manager.c"
         "mcp_server.c"
         "http_server.c"
+        "swd_driver.c"
+        "soft_uart.c"
+        "websocket_server.c"
     INCLUDE_DIRS "."
     REQUIRES 
         nvs_flash 
         driver
         esp_driver_gpio
         esp_driver_uart
+        esp_driver_rmt
         esp_timer 
         bridge_common
         esp_event

@@ -43,8 +43,8 @@
 | **D1** | GPIO3 | SWDIO | In/Out | SWD 数据线 |
 | **D2** | GPIO4 | SWCLK | Out | SWD 时钟线 |
 | **D3** | GPIO5 | NRST | Out | 目标板复位 |
-| **D4** | GPIO6 | UART RX | In | 接收目标板 TX |
-| **D5** | GPIO7 | UART TX | Out | 发送给目标板 RX |
+| **D4** | GPIO0 | UART RX (软UART) | In | 接收目标板 TX |
+| **D5** | GPIO1 | UART TX (软UART) | Out | 发送给目标板 RX |
 | **D6** | GPIO10 | **授权按键** | In | **物理按键 (上拉)** |
 | **D7** | GPIO20 | USB_CDC_TX | Out | 调试日志输出 |
 | **D8** | GPIO21 | USB_CDC_RX | In | 调试指令输入 |
@@ -59,12 +59,12 @@
 
 ```
 ESP32C3 Super Mini          STM32 Target
-──────────────────          ────────────
+──────────────────          ───────────
 GPIO3 (SWDIO)    <───────>  SWDIO (PA13)
 GPIO4 (SWCLK)    ───────>  SWCLK (PA14)
 GPIO5 (NRST)     ───────>  NRST
-GPIO6 (RX)       <───────  USART1_TX (PA9)
-GPIO7 (TX)       ───────>  USART1_RX (PA10)
+GPIO0 (UART RX)  <───────  USART1_TX (PA9)
+GPIO1 (UART TX)  ───────>  USART1_RX (PA10)
 GPIO10 (Button)  ──[KEY]── GND
 3V3              ──[SW]──> VCC (3.3V)
 GND              ────────  GND
@@ -136,6 +136,42 @@ struct mcp_header {
 - `0x12` **FLASH_END**: 结束烧录 (触发校验)
 - `0x20` **UART_CONFIG**: 配置波特率
 - `0x21` **UART_START**: 启动透传
+
+### 4.4 UART 命令 (文本协议)
+
+除二进制帧外，亦支持简单的文本命令格式：
+
+```
+# 启动 UART 透传
+uart_start <baudrate>
+  参数: baudrate - 波特率 (9600-115200)
+  示例: uart_start 115200
+  响应: OK: Started at 115200
+        ERROR: Baudrate must be between 9600 and 115200
+
+# 停止 UART 透传
+uart_stop
+  响应: OK: Stopped
+
+# 发送数据到目标板 UART
+uart_send <hex_data>
+  参数: hex_data - 十六进制字符串
+  示例: uart_send 48656C6C6F  (发送 "Hello")
+  响应: OK: Sent N bytes
+        ERROR: UART not running
+
+# 从目标板 UART 接收数据
+uart_recv
+  响应: OK: <hex_data>  (返回十六进制字符串，空数据时为 "OK: ")
+```
+
+**WebSocket 透传**:
+- 端口: 8080
+- 路径: `/uart`
+- 连接后直接双向透传原始二进制数据
+- 无需认证（与 MCP 命令共用 Session）
+
+---
 
 ### 4.2 认证流程 (Challenge-Response)
 
